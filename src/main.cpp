@@ -3,7 +3,7 @@
 
 int main() {
   SDL_Init(SDL_INIT_VIDEO);
-  std::Nice("Hello, SDL!");
+  std::print("Hello, SDL!");
   SDL_Quit();
   return 0;
 }
