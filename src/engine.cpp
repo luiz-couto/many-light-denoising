@@ -6,7 +6,18 @@ Engine::Engine():
 
 void Engine::run() {
   render();
-  while(window.pollEvents()) {
+  bool running = true;
+  while (running) {
+    switch (window.pollEvents()) {
+      case Window::Event::Quit:
+        running = false;
+        break;
+      case Window::Event::SaveImage:
+        window.savePNG(Config::OUTPUT_PATH, frameBuffer.data());
+        break;
+      default:
+        break;
+    }
     window.update(frameBuffer.data());
   }
 }

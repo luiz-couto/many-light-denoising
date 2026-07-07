@@ -44,13 +44,16 @@ Window::~Window() {
   SDL_Quit();
 }
 
-bool Window::pollEvents() {
+Window::Event Window::pollEvents() {
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
-    if (event.type == SDL_QUIT) return false;
-    if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) return false;
+    if (event.type == SDL_QUIT) return Window::Event::Quit;
+    if (event.type == SDL_KEYDOWN) {
+      if (event.key.keysym.sym == SDLK_ESCAPE) return Window::Event::Quit;
+      if (event.key.keysym.sym == SDLK_s) return Window::Event::SaveImage;
+    }
   }
-  return true;
+  return Window::Event::None;
 }
 
 void Window::update(const uint8_t* pixels) {
