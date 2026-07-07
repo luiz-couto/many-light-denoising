@@ -1,9 +1,13 @@
-#include <SDL2/SDL.h>
 #include <print>
+#include "engine.h"
 
 int main() {
-  SDL_Init(SDL_INIT_VIDEO);
-  std::print("Hello, SDL!");
-  SDL_Quit();
+  try {
+    Engine engine;
+    engine.run();
+  } catch (const std::exception& err) {
+    std::println("Fatal error: {}", err.what());
+    return 1;
+  }
   return 0;
 }
