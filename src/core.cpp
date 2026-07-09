@@ -515,3 +515,20 @@ Vec3 Frame::toLocal(const Vec3& vec) const {
 Vec3 Frame::toWorld(const Vec3& vec) const {
   return ((u * vec.x) + (v * vec.y) + (w * vec.z));
 }
+
+Vec3 SphericalCoordinates::sphericalToWorld(float theta, float phi) {
+  return Vec3(
+    cosf(phi) * sinf(theta),
+    sinf(phi) * sinf(theta),
+    cosf(theta)
+  );
+}
+
+float SphericalCoordinates::sphericalTheta(const Vec3& wi) {
+  return acosf(std::clamp(wi.z, -1.0f, 1.0f));
+}
+
+float SphericalCoordinates::sphericalPhi(const Vec3& wi) {
+  float p = atan2f(wi.y, wi.x);
+  return (p < 0.0f) ? p + (2.0f * PI) : p;
+}

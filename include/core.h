@@ -116,6 +116,13 @@ public:
   Vec3 toWorld(const Vec3& vec) const;
 };
 
+class SphericalCoordinates {
+public:
+  static Vec3 sphericalToWorld(float theta, float phi);
+  static float sphericalTheta(const Vec3& wi);
+  static float sphericalPhi(const Vec3& wi);
+};
+
 float dot(const Vec3 v1, const Vec3 v2);
 Vec3 cross(const Vec3& v1, const Vec3& v2);
 Vec3 maxVec(Vec3 a, Vec3 b);
