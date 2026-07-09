@@ -4,8 +4,6 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <memory.h>
-#include <vector>
-#include <algorithm>
 #include <numbers>
 
 constexpr float SQ(float x) { return x * x; }
