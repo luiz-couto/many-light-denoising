@@ -20,11 +20,11 @@ FetchContent_Declare(Catch2
   GIT_TAG v3.5.0)
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(renderer src/main.cpp src/engine.cpp src/window.cpp)
+add_executable(renderer src/main.cpp src/engine.cpp src/window.cpp src/core.cpp)
 target_include_directories(renderer PRIVATE include)
 target_link_libraries(renderer PRIVATE SDL2::SDL2 OpenImageDenoise)
 
 # Tests
-add_executable(tests tests/placeholder.cpp)
+add_executable(tests tests/vec3_tests.cpp src/core.cpp)
 target_include_directories(tests PRIVATE include)
 target_link_libraries(tests PRIVATE Catch2::Catch2WithMain)
