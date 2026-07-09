@@ -106,4 +106,19 @@ public:
   static Matrix rotateZ(float theta);
 };
 
+class Frame {
+public:
+  Vec3 u, v, w;
+
+  void fromVector(const Vec3& n);
+  void fromVectorTangent(const Vec3& n, const Vec3& t);
+  Vec3 toLocal(const Vec3& vec) const;
+  Vec3 toWorld(const Vec3& vec) const;
+};
+
+float dot(const Vec3 v1, const Vec3 v2);
+Vec3 cross(const Vec3& v1, const Vec3& v2);
+Vec3 maxVec(Vec3 a, Vec3 b);
+Vec3 minVec(Vec3 a, Vec3 b);
+
 #endif // CORE_H

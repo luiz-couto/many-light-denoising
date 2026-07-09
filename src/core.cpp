@@ -457,3 +457,61 @@ Matrix Matrix::rotateZ(float theta) {
 
   return mat;
 }
+
+Vec3 cross(const Vec3 &v1, const Vec3 &v2) {
+  return Vec3(
+    (v1.y * v2.z) - (v1.z * v2.y),
+    (v1.z * v2.x) - (v1.x * v2.z),
+    (v1.x * v2.y) - (v1.y * v2.x)
+  );
+}
+
+float dot(const Vec3 v1, const Vec3 v2) {
+  return ((v1.x * v2.x) + (v1.y * v2.y) + (v1.z * v2.z));
+}
+
+Vec3 maxVec(Vec3 a, Vec3 b) {
+  return Vec3(
+    a.x > b.x ? a.x : b.x,
+    a.y > b.y ? a.y : b.y,
+    a.z > b.z ? a.z : b.z
+  );
+}
+
+Vec3 minVec(Vec3 a, Vec3 b) {
+  return Vec3(
+    a.x < b.x ? a.x : b.x,
+    a.y < b.y ? a.y : b.y,
+    a.z < b.z ? a.z : b.z
+  );
+}
+
+void Frame::fromVector(const Vec3& n) {
+  w = n.normalize();
+  if (fabsf(w.x) > fabsf(w.y)) {
+    float l = 1.0f / sqrtf(w.x * w.x + w.z * w.z);
+    u = Vec3(w.z * l, 0.0f, -w.x * l);
+  } else {
+    float l = 1.0f / sqrtf(w.y * w.y + w.z * w.z);
+    u = Vec3(0, w.z * l, -w.y * l);
+  }
+  v = cross(w, u);
+}
+
+void Frame::fromVectorTangent(const Vec3& n, const Vec3& t) {
+  w = n.normalize();
+  u = (t - w * dot(t, w)).normalize();
+  v = cross(w, u);
+}
+
+Vec3 Frame::toLocal(const Vec3& vec) const {
+  return Vec3(
+    dot(vec, u),
+    dot(vec, v),
+    dot(vec, w)
+  );
+}
+
+Vec3 Frame::toWorld(const Vec3& vec) const {
+  return ((u * vec.x) + (v * vec.y) + (w * vec.z));
+}
