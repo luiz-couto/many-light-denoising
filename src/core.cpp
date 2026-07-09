@@ -65,3 +65,74 @@ Vec3 Vec3::cross(Vec3 v) const {
     (x * v.y) - (y * v.x)
   );
 }
+
+Colour::Colour() {
+  r = 0; g = 0; b = 0;
+}
+
+Colour::Colour(float _r, float _g, float _b):
+r(_r), g(_g), b(_b) {}
+
+Colour::Colour(unsigned char _r, unsigned char _g, unsigned char _b) {
+  r = (float)_r / 255.0f;
+	g = (float)_g / 255.0f;
+	b = (float)_b / 255.0f;
+}
+
+Colour Colour::operator+(const Colour& colour) const {
+  Colour c;
+  c.r = r + colour.r;
+  c.g = g + colour.g;
+  c.b = b + colour.b;
+	return c;
+}
+
+Colour Colour::operator-(const Colour& colour) const {
+  Colour c;
+  c.r = r - colour.r;
+  c.g = g - colour.g;
+  c.b = b - colour.b;
+  return c;
+}
+
+Colour Colour::operator*(const Colour& colour) const {
+  Colour c;
+  c.r = r * colour.r;
+  c.g = g * colour.g;
+  c.b = b * colour.b;
+  return c;
+}
+
+Colour Colour::operator*(const float& num) const {
+  Colour c;
+  c.r = r * num;
+  c.g = g * num;
+  c.b = b * num;
+  return c;
+}
+
+Colour Colour::operator/(const Colour& colour) const {
+  Colour c;
+  c.r = r / colour.r;
+  c.g = g / colour.g;
+  c.b = b / colour.b;
+  return c;
+}
+
+Colour Colour::operator/(const float &v) const {
+  Colour c;
+  c.r = r / v;
+  c.g = g / v;
+  c.b = b / v;
+  return c;
+}
+
+void Colour::toRGB(unsigned char& cr, unsigned char& cg, unsigned char& cb) const {
+  cr = (unsigned char)(std::clamp(r, 0.0f, 1.0f) * 255);
+  cg = (unsigned char)(std::clamp(g, 0.0f, 1.0f) * 255);
+  cb = (unsigned char)(std::clamp(b, 0.0f, 1.0f) * 255);
+}
+
+float Colour::lum() const {
+  return (LUM_R * r) + (LUM_G * g) + (LUM_B * b);
+}
