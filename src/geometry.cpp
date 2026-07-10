@@ -52,3 +52,16 @@ void Triangle::interpolateAttributes(const float alpha, const float beta, const 
 Vec3 Triangle::gNormal() const {
   return (n * (dot(vertices[0].normal, n) > 0 ? 1.0f : -1.0f));
 }
+
+Vec3 Triangle::sample(Sampler* sampler, float& pdf) {
+  pdf = 1.0f / area;
+  float r1 = sampler->next();
+  float r2 = sampler->next();
+
+  float sqrtR1 = sqrtf(r1);
+  float alpha = 1.0f - sqrtR1;
+  float beta  = r2 * sqrtR1;
+  float gamma = 1.0f - (alpha + beta);
+
+  return vertices[0].p * alpha + vertices[1].p * beta + vertices[2].p * gamma;
+}

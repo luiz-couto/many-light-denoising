@@ -3,6 +3,7 @@
 
 #include "core.h"
 #include "ray.h"
+#include "sampling.h"
 
 constexpr float RAY_EPSILON = 1e-6f;
 
@@ -31,7 +32,7 @@ public:
     float& interpolatedV
   ) const;
 
-  //Vec3 sample(Sampler* sampler, float& pdf);
+  Vec3 sample(Sampler* sampler, float& pdf);
   Vec3 gNormal() const;
 };
 

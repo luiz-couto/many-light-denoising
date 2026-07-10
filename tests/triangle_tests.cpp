@@ -1,6 +1,16 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <vector>
 #include "geometry.h"
+
+// Feeds a fixed sequence of floats so sample() is deterministic in tests
+class SequenceSampler : public Sampler {
+  std::vector<float> seq;
+  size_t idx = 0;
+public:
+  SequenceSampler(std::initializer_list<float> vals) : seq(vals) {}
+  float next() override { return seq[idx++ % seq.size()]; }
+};
 
 static void requireVecEq(const Vec3& v, float x, float y, float z) {
   REQUIRE(v.x == Catch::Approx(x).margin(1e-4f));
@@ -214,4 +224,97 @@ TEST_CASE("Triangle::interpolateAttributes barycentric coords from MT roundtrip"
   t.interpolateAttributes(1.0f - u - v, u, v, n, iu, iv);
   REQUIRE(iu == Catch::Approx(0.3f).margin(1e-4f));
   REQUIRE(iv == Catch::Approx(0.4f).margin(1e-4f));
+}
+
+// -----------------------------------------------------------------------
+// Triangle::sample
+// -----------------------------------------------------------------------
+
+TEST_CASE("Triangle::sample pdf equals 1/area") {
+  Triangle t = makeXYTriangle();  // area = 0.5
+  MTRandom rng(42);
+  float pdf;
+  t.sample(&rng, pdf);
+  REQUIRE(pdf == Catch::Approx(2.0f).margin(1e-4f));  // 1 / 0.5
+}
+
+TEST_CASE("Triangle::sample point lies on triangle plane") {
+  Triangle t = makeXYTriangle();  // z = 0 plane
+  MTRandom rng(42);
+  float pdf;
+  for (int i = 0; i < 500; i++) {
+    Vec3 p = t.sample(&rng, pdf);
+    REQUIRE(p.z == Catch::Approx(0.0f).margin(1e-4f));
+  }
+}
+
+TEST_CASE("Triangle::sample point is inside triangle") {
+  // XY triangle: x>=0, y>=0, x+y<=1
+  Triangle t = makeXYTriangle();
+  MTRandom rng(42);
+  float pdf;
+  for (int i = 0; i < 500; i++) {
+    Vec3 p = t.sample(&rng, pdf);
+    REQUIRE(p.x >= -1e-4f);
+    REQUIRE(p.y >= -1e-4f);
+    REQUIRE(p.x + p.y <= 1.0f + 1e-4f);
+  }
+}
+
+TEST_CASE("Triangle::sample corner cases reach each vertex") {
+  Triangle t = makeXYTriangle();
+  // v0=(0,0,0), v1=(1,0,0), v2=(0,1,0)
+  float pdf;
+
+  SECTION("r1=0 -> v0") {
+    SequenceSampler s({0.0f, 0.5f});
+    Vec3 p = t.sample(&s, pdf);
+    requireVecEq(p, 0.0f, 0.0f, 0.0f);
+  }
+
+  SECTION("r1=1, r2=1 -> v1") {
+    SequenceSampler s({1.0f, 1.0f});
+    Vec3 p = t.sample(&s, pdf);
+    requireVecEq(p, 1.0f, 0.0f, 0.0f);
+  }
+
+  SECTION("r1=1, r2=0 -> v2") {
+    SequenceSampler s({1.0f, 0.0f});
+    Vec3 p = t.sample(&s, pdf);
+    requireVecEq(p, 0.0f, 1.0f, 0.0f);
+  }
+}
+
+TEST_CASE("Triangle::sample E[P] converges to centroid") {
+  // For any uniform distribution on a triangle, the expected sample position
+  // equals the centroid: E[P] = (v0+v1+v2)/3
+  Triangle t = makeXYTriangle();
+  MTRandom rng(42);
+  float pdf;
+  Vec3 sum(0.0f, 0.0f, 0.0f);
+  const int N = 1000;
+  for (int i = 0; i < N; i++)
+    sum = sum + t.sample(&rng, pdf);
+  Vec3 mean = sum / static_cast<float>(N);
+  // Statistical margin: std dev of mean ≈ 0.008 for N=1000, so 0.05 is >6-sigma
+  REQUIRE(mean.x == Catch::Approx(1.0f / 3.0f).margin(0.05f));
+  REQUIRE(mean.y == Catch::Approx(1.0f / 3.0f).margin(0.05f));
+  REQUIRE(mean.z == Catch::Approx(0.0f).margin(1e-4f));
+}
+
+TEST_CASE("Triangle::sample works for arbitrary 3D triangle") {
+  // Non-axis-aligned triangle — verify point lies on the plane: dot(P-v0, n) = 0
+  Vertex v0(Vec3(1.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f), 0.0f, 0.0f);
+  Vertex v1(Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f), 1.0f, 0.0f);
+  Vertex v2(Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, 1.0f, 0.0f), 0.0f, 1.0f);
+  Triangle t;
+  t.init(v0, v1, v2, 0);
+
+  MTRandom rng(7);
+  float pdf;
+  for (int i = 0; i < 200; i++) {
+    Vec3 p = t.sample(&rng, pdf);
+    float dist = dot(p - t.vertices[0].p, t.n);
+    REQUIRE(dist == Catch::Approx(0.0f).margin(1e-4f));
+  }
 }
