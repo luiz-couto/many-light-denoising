@@ -25,6 +25,6 @@ target_include_directories(renderer PRIVATE include)
 target_link_libraries(renderer PRIVATE SDL2::SDL2 OpenImageDenoise)
 
 # Tests
-add_executable(tests tests/vec3_tests.cpp tests/colour_tests.cpp tests/matrix_tests.cpp tests/frame_tests.cpp tests/vec3_utils_tests.cpp tests/spherical_tests.cpp tests/ray_tests.cpp tests/triangle_tests.cpp tests/sampling_tests.cpp src/core.cpp src/ray.cpp src/geometry.cpp src/sampling.cpp)
+add_executable(tests tests/vec3_tests.cpp tests/colour_tests.cpp tests/matrix_tests.cpp tests/frame_tests.cpp tests/vec3_utils_tests.cpp tests/spherical_tests.cpp tests/ray_tests.cpp tests/triangle_tests.cpp tests/sampling_tests.cpp tests/aabb_tests.cpp src/core.cpp src/ray.cpp src/geometry.cpp src/sampling.cpp)
 target_include_directories(tests PRIVATE include)
 target_link_libraries(tests PRIVATE Catch2::Catch2WithMain)
