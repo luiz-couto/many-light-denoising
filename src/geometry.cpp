@@ -65,3 +65,41 @@ Vec3 Triangle::sample(Sampler* sampler, float& pdf) {
 
   return vertices[0].p * alpha + vertices[1].p * beta + vertices[2].p * gamma;
 }
+
+AABB::AABB() {
+  reset();
+}
+
+void AABB::reset() {
+  bmax = Vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+	bmin = Vec3(FLT_MAX, FLT_MAX, FLT_MAX);
+}
+
+void AABB::extend(const Vec3& p) {
+  bmax = maxVec(bmax, p);
+	bmin = minVec(bmin, p);
+}
+
+bool AABB::rayAABB(const Ray& r, float& t) const {
+  Vec3 tMin = (bmin - r.o) * (r.invDir);
+  Vec3 tMax = (bmax - r.o) * (r.invDir);
+
+  Vec3 tEntry = minVec(tMin, tMax);
+  Vec3 tExit = maxVec(tMin, tMax);
+
+  float entryVal = std::max({ tEntry.x, tEntry.y, tEntry.z });
+  float exitVal = std::min({ tExit.x, tExit.y, tExit.z });
+
+  t = entryVal;
+  return (entryVal <= exitVal && exitVal > 0);
+}
+
+bool AABB::rayAABB(const Ray& r) const {
+  float t;
+  return rayAABB(r, t);
+}
+
+float AABB::area() const {
+  Vec3 size = bmax - bmin;
+	return ((size.x * size.y) + (size.y * size.z) + (size.x * size.z)) * 2.0f;
+}

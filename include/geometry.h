@@ -36,4 +36,17 @@ public:
   Vec3 gNormal() const;
 };
 
+class AABB {
+public:
+  Vec3 bmax;
+  Vec3 bmin;
+
+  AABB();
+  void reset();
+  void extend(const Vec3& p);
+  bool rayAABB(const Ray& r, float& t) const;
+  bool rayAABB(const Ray& r) const;
+  float area() const;
+};
+
 #endif // GEOMETRY_H
