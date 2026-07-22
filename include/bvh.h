@@ -45,6 +45,10 @@ public:
   // orchestrates: compute bounds → find split → leaf-or-recurse
   void buildNode(int nodeIdx, int start, int count);
 
+  bool traverseNode(int nodeIdx, const Ray& ray, IntersectionData& intersection) const;
+
+  bool traverseVisibleNode(int nodeIdx, const Ray& ray, float maxT) const;
+
   BVH();
   void build(Triangle* triangles, int count);
   bool traverse(const Ray& ray, IntersectionData& intersection) const;

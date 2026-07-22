@@ -172,3 +172,92 @@ SplitResult BVH::sweepBins(const std::vector<Bin>& bins, int axis, float parentA
 
   return best;
 }
+
+bool BVH::traverse(const Ray& ray, IntersectionData& intersection) const {
+  if (nodes.empty()) return false;
+  return traverseNode(0, ray, intersection);
+}
+
+bool BVH::traverseNode(int nodeIdx, const Ray& ray, IntersectionData& intersection) const {
+  const BVHNode& node = nodes[nodeIdx];
+  float t;
+
+  // the ray completely misses this node's bounding box. No point descending into it
+  if (!node.bounds.rayAABB(ray, t) || t > intersection.t) return false;
+
+  // leaf
+  if (node.primCount > 0) {
+    bool hit = false;
+    for (int i = node.firstPrim; i < node.firstPrim + node.primCount; i++) {
+      float tHit, u, v;
+      if (triangles[primIndices[i]].rayIntersectMT(ray, tHit, u, v) && tHit < intersection.t) {
+        intersection.t = tHit;
+        intersection.ID = primIndices[i];
+        intersection.alpha = 1.0f - u - v;
+        intersection.beta  = u;
+        intersection.gamma = v;
+        hit = true;
+      }
+    }
+    return hit;
+  }
+
+  // interior
+  // tests both children's bounding boxes to figure out which is nearer, then recurses nearer-first
+  int leftIdx  = node.leftChild;
+  int rightIdx = node.leftChild + 1;
+  float tLeft = FLT_MAX, tRight = FLT_MAX;
+
+  nodes[leftIdx].bounds.rayAABB(ray, tLeft);
+  nodes[rightIdx].bounds.rayAABB(ray, tRight);
+
+  bool hit = false;
+  int nearestNode = tLeft < tRight ? leftIdx : rightIdx;
+  int farNode = tLeft < tRight ? rightIdx : leftIdx;
+  
+  hit = traverseNode(nearestNode,  ray, intersection);
+  hit |= traverseNode(farNode, ray, intersection);
+
+  return hit;
+}
+
+bool BVH::traverseVisible(const Ray& ray, float maxT) const {
+  if (nodes.empty()) return true;
+  return traverseVisibleNode(0, ray, maxT);
+}
+
+bool BVH::traverseVisibleNode(int nodeIdx, const Ray& ray, float maxT) const {
+  const BVHNode& node = nodes[nodeIdx];
+  float t;
+
+  // the ray completely misses this node's bounding box. No point descending into it
+  if (!node.bounds.rayAABB(ray, t) || t > maxT) return true;
+
+  // leaf
+  if (node.primCount > 0) { 
+    for (int i = node.firstPrim; i < node.firstPrim + node.primCount; i++) {
+      float tHit, u, v;
+      if (triangles[primIndices[i]].rayIntersectMT(ray, tHit, u, v) && tHit > 0.0f && tHit < maxT) {
+        return false; // occluded
+      }
+    }
+    return true;
+  }
+
+  // interior
+  // tests both children's bounding boxes to figure out which is nearer, then recurses nearer-first
+  int leftIdx  = node.leftChild;
+  int rightIdx = node.leftChild + 1;
+  float tLeft = FLT_MAX, tRight = FLT_MAX;
+
+  nodes[leftIdx].bounds.rayAABB(ray, tLeft);
+  nodes[rightIdx].bounds.rayAABB(ray, tRight);
+
+  int nearestNode = tLeft < tRight ? leftIdx : rightIdx;
+  int farNode = tLeft < tRight ? rightIdx : leftIdx;
+  
+  if (!traverseVisibleNode(nearestNode, ray, maxT)) return false;
+  if (!traverseVisibleNode(farNode, ray, maxT)) return false;
+  
+  return true;
+}
