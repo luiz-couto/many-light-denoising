@@ -160,7 +160,7 @@ SplitResult BVH::sweepBins(const std::vector<Bin>& bins, int axis, float parentA
   for (int i = 0; i < BUILD_BINS - 1; i++) {
     if (leftSweep[i].numTriangles == 0 || rightSweep[i + 1].numTriangles == 0) continue;
 
-    float leftCost  = (leftSweep[i].bounds.area() / parentArea) * leftSweep[i].numTriangles;
+    float leftCost = (leftSweep[i].bounds.area() / parentArea) * leftSweep[i].numTriangles;
     float rightCost = (rightSweep[i + 1].bounds.area() / parentArea) * rightSweep[i + 1].numTriangles;
     float cost = BOUNDS_COST + (leftCost + rightCost) * C_ISECT_COST;
 
