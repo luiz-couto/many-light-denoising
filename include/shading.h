@@ -43,4 +43,41 @@ public:
 	Colour emit(const ShadingData& shadingData, const Vec3& wi);
 };
 
+
+namespace ShadingHelper {
+  // Computes the cosine of the transmitted angle via Snell's law.
+  // n = extIOR / intIOR. Sets totalInternalReflection=true if TIR occurs.
+  float getCosThetaT(float cosTheta, float n, bool& totalInternalReflection);
+
+  // Fresnel reflectance for a dielectric (real IOR, transparent medium).
+  // Returns intensity (amplitude²), averaged over s and p polarisations.
+  // Uses both the incident and transmitted angles (transmitted via Snell's law internally).
+  float fresnelDielectric(float cosTheta, float intIOR, float extIOR);
+
+  // Overload taking the IOR ratio n = intIOR / extIOR directly.
+  float fresnelDielectric(float cosTheta, float n);
+
+  // Fresnel intensity reflectance (already squared) for a conductor (complex IOR n+ik).
+  // Unlike the dielectric overloads, there is no transmitted angle, conductors are opaque.
+  // k is the extinction coefficient: k=0 matches the dielectric formula at normal incidence only.
+  float fresnelConductorPerpendicularSqr(float cosTheta, float n, float k); // s-polarisation
+  float fresnelConductorParallelSqr(float cosTheta, float n, float k);      // p-polarisation
+
+  // Per-channel conductor Fresnel reflectance averaged over both polarisations.
+  // ior and k are the real and imaginary parts of the complex refractive index, per RGB channel.
+  Colour fresnelConductor(float cosTheta, Colour ior, Colour k);
+
+  // GGX lambda function, helper for the Smith geometry term.
+  // wi must be in the shading frame (normal = (0,0,1), wi.z = cosTheta).
+  float lambdaGGX(Vec3 wi, float alpha);
+
+  // Smith height-correlated masking-shadowing term for GGX.
+  // wi and wo must be in the shading frame (normal = (0,0,1)).
+  float Gggx(Vec3 wi, Vec3 wo, float alpha);
+
+  // GGX normal distribution function evaluated at half-vector h.
+  // h must be in the shading frame (normal = (0,0,1)).
+  float Dggx(Vec3 h, float alpha);
+}
+
 #endif // SHADING_H

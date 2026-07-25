@@ -8,7 +8,7 @@
 
 constexpr float SQ(float x) { return x * x; }
 
-constexpr float PI    = std::numbers::pi_v<float>;
+constexpr float PI = std::numbers::pi_v<float>;
 
 constexpr float LUM_R = 0.2126f;
 constexpr float LUM_G = 0.7152f;
