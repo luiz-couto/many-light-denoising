@@ -1,9 +1,9 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
-#include "window.h"
-#include "config.h"
 #include <vector>
+#include "window.h"
+#include "renderer.h"
 
 class Engine {
   public:
@@ -12,12 +12,11 @@ class Engine {
     // Main loop
     void run();
 
+    Renderer renderer;
+
   private:
     Window window;
     std::vector<uint8_t> frameBuffer;
-
-    // Rendering function
-    void render();
 };
 
 #endif // ENGINE_H
