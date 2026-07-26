@@ -3,6 +3,7 @@
 #include "shading.h"
 #include "texture.h"
 #include "sampling.h"
+#include "bsdf_test_utils.h"
 #include <cmath>
 
 static Texture makeWhiteTex() { Texture t; t.loadDefault(); return t; }
@@ -237,4 +238,21 @@ TEST_CASE("MirrorBSDF isPureSpecular: returns true") {
   Texture tex = makeWhiteTex();
   MirrorBSDF bsdf(&tex, Colour(1.0f, 1.0f, 1.0f), Colour(1.0f, 1.0f, 1.0f));
   REQUIRE(bsdf.isPureSpecular() == true);
+}
+
+// -----------------------------------------------------------------------
+// Energy conservation
+// -----------------------------------------------------------------------
+
+TEST_CASE("MirrorBSDF energy conservation: reflectance <= 1") {
+  // Silver IOR — Fresnel < 1 at all angles so reflectance < 1
+  Texture tex = makeWhiteTex();
+  MirrorBSDF bsdf(&tex, Colour(0.177f, 0.178f, 0.172f), Colour(3.638f, 2.973f, 2.430f));
+  float cosines[] = { 0.2f, 0.4f, 0.6f, 0.8f, 1.0f };
+  for (float c : cosines) {
+    float s = sqrtf(1.0f - c * c);
+    ShadingData sd = makeTestSD(Vec3(s, 0.0f, c));
+    float r = estimateReflectance(&bsdf, sd, 500); // deterministic — 500 samples is plenty
+    REQUIRE(r <= 1.05f);
+  }
 }

@@ -3,6 +3,7 @@
 #include "shading.h"
 #include "texture.h"
 #include "sampling.h"
+#include "bsdf_test_utils.h"
 #include <cmath>
 
 // Helpers — build a white 1x1 DiffuseBSDF and a fixed shading point on the flat XY plane.
@@ -180,4 +181,34 @@ TEST_CASE("DiffuseBSDF isTwoSided: returns true") {
   Texture tex = makeWhiteTex();
   DiffuseBSDF bsdf(&tex);
   REQUIRE(bsdf.isTwoSided() == true);
+}
+
+// -----------------------------------------------------------------------
+// Energy conservation
+// -----------------------------------------------------------------------
+
+TEST_CASE("DiffuseBSDF energy conservation: reflectance <= 1 for white albedo") {
+  Texture tex = makeWhiteTex();
+  DiffuseBSDF bsdf(&tex);
+  MTRandom sampler;
+  // Test a range of outgoing directions from grazing to near-normal
+  float cosines[] = { 0.1f, 0.3f, 0.5f, 0.7f, 0.9f, 1.0f };
+  for (float c : cosines) {
+    float s = sqrtf(1.0f - c * c);
+    ShadingData sd = makeTestSD(Vec3(s, 0.0f, c));
+    float r = estimateReflectance(&bsdf, sd, 2000);
+    REQUIRE(r <= 1.05f);
+  }
+}
+
+// -----------------------------------------------------------------------
+// Chi-square: sampled distribution matches PDF
+// -----------------------------------------------------------------------
+
+TEST_CASE("DiffuseBSDF chi-square: sampled distribution matches PDF") {
+  Texture tex = makeWhiteTex();
+  DiffuseBSDF bsdf(&tex);
+  // 45° outgoing direction exercises the full cosine-weighted lobe
+  ShadingData sd = makeTestSD(Vec3(sqrtf(0.5f), 0.0f, sqrtf(0.5f)));
+  REQUIRE(chiSquareTest(&bsdf, sd));
 }

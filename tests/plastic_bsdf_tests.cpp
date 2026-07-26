@@ -3,6 +3,7 @@
 #include "shading.h"
 #include "texture.h"
 #include "sampling.h"
+#include "bsdf_test_utils.h"
 #include <cmath>
 
 static Texture makeWhiteTex() { Texture t; t.loadDefault(); return t; }
@@ -337,4 +338,35 @@ TEST_CASE("PlasticBSDF evaluate: specular does not scale with albedo (regression
   // and albedo were coloured, they would differ — this checks the white-albedo invariant)
   REQUIRE(result.r == Catch::Approx(result.g).margin(1e-5f));
   REQUIRE(result.g == Catch::Approx(result.b).margin(1e-5f));
+}
+
+// -----------------------------------------------------------------------
+// Energy conservation
+// -----------------------------------------------------------------------
+
+TEST_CASE("PlasticBSDF energy conservation: reflectance <= 1 for white albedo") {
+  Texture tex = makeWhiteTex();
+  PlasticBSDF bsdf(&tex, 1.5f, 1.0f, 0.5f);
+  // The simple plastic model (specular + diffuse both weighted by F(cosH)) has a known
+  // ~6% energy gain at grazing angles — see possible_fixes.md. Threshold 1.10 with
+  // N=5000 gives a reliable bound even at cosWo=0.2 where variance is highest.
+  float cosines[] = { 0.2f, 0.4f, 0.6f, 0.8f, 1.0f };
+  for (float c : cosines) {
+    float s = sqrtf(1.0f - c * c);
+    ShadingData sd = makeTestSD(Vec3(s, 0.0f, c));
+    float r = estimateReflectance(&bsdf, sd, 5000);
+    REQUIRE(r <= 1.10f);
+  }
+}
+
+// -----------------------------------------------------------------------
+// Chi-square: sampled distribution matches PDF
+// -----------------------------------------------------------------------
+
+TEST_CASE("PlasticBSDF chi-square: sampled distribution matches PDF") {
+  Texture tex = makeWhiteTex();
+  PlasticBSDF bsdf(&tex, 1.5f, 1.0f, 0.5f);
+  // 45° wo exercises both the GGX specular lobe and the cosine diffuse lobe
+  ShadingData sd = makeTestSD(Vec3(sqrtf(0.5f), 0.0f, sqrtf(0.5f)));
+  REQUIRE(chiSquareTest(&bsdf, sd));
 }

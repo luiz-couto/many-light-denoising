@@ -85,10 +85,7 @@ float ShadingHelper::lambdaGGX(Vec3 wi, float alpha) {
 }
 
 float ShadingHelper::Gggx(Vec3 wi, Vec3 wo, float alpha) {
-  float go = 1 / (1 + lambdaGGX(wo, alpha));
-  float gi = 1 / (1 + lambdaGGX(wi, alpha));
-
-  return go * gi;
+  return 1.0f / (1.0f + lambdaGGX(wi, alpha) + lambdaGGX(wo, alpha));
 }
 
 float ShadingHelper::Dggx(Vec3 h, float alpha) {
@@ -227,7 +224,7 @@ Vec3 ConductorBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Col
   }
 
   pdf = (ShadingHelper::Dggx(wm, alpha) * cosf(thetaM)) / (4 * wm.dot(woLocal));
-  reflectedColour = evaluate(shadingData, wiWorld);
+  reflectedColour = evaluate(shadingData, wiWorld) * wi.z / pdf;
   return wiWorld;
 }
 
@@ -382,8 +379,7 @@ Colour PlasticBSDF::evaluate(const ShadingData& shadingData, const Vec3& wi) {
   Vec3 h = (localWi + localWo).normalize();
   float gWoWi = ShadingHelper::Gggx(localWi, localWo, alpha);
   float dWm = ShadingHelper::Dggx(h, alpha);
-  float halfVecAngle = localWo.dot(h);
-  float fresnel = ShadingHelper::fresnelDielectric(halfVecAngle, intIOR, extIOR);
+  float fresnel = ShadingHelper::fresnelDielectric(localWo.dot(h), intIOR, extIOR);
 
   float term1 = fresnel * gWoWi * dWm;
   float term2 = 4 * localWo.z * localWi.z;

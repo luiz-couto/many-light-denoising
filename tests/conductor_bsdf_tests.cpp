@@ -3,6 +3,7 @@
 #include "shading.h"
 #include "texture.h"
 #include "sampling.h"
+#include "bsdf_test_utils.h"
 #include <cmath>
 
 static Texture makeWhiteTex() { Texture t; t.loadDefault(); return t; }
@@ -321,7 +322,7 @@ TEST_CASE("ConductorBSDF sample: pdf is non-negative") {
 // sample — reflectedColour = evaluate(wi)
 // -----------------------------------------------------------------------
 
-TEST_CASE("ConductorBSDF sample: reflectedColour equals evaluate(wi) for valid samples") {
+TEST_CASE("ConductorBSDF sample: reflectedColour equals evaluate(wi) * cosWi / pdf for valid samples") {
   Texture tex = makeWhiteTex();
   ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.5f);
   ShadingData sd = makeSD(Vec3(0.0f, 0.0f, 1.0f));
@@ -330,11 +331,12 @@ TEST_CASE("ConductorBSDF sample: reflectedColour equals evaluate(wi) for valid s
   for (int i = 0; i < 20; i++) {
     Colour weight; float pdf;
     Vec3 wi = bsdf.sample(sd, &sampler, weight, pdf);
-    if (pdf > 0.0f) { // null samples (below-horizon wi) have weight=0, evaluate would differ
+    if (pdf > 0.0f) {
       Colour eval = bsdf.evaluate(sd, wi);
-      REQUIRE(weight.r == Catch::Approx(eval.r).margin(0.001f));
-      REQUIRE(weight.g == Catch::Approx(eval.g).margin(0.001f));
-      REQUIRE(weight.b == Catch::Approx(eval.b).margin(0.001f));
+      float cosWi = sd.frame.toLocal(wi).z;
+      REQUIRE(weight.r == Catch::Approx(eval.r * cosWi / pdf).margin(0.001f));
+      REQUIRE(weight.g == Catch::Approx(eval.g * cosWi / pdf).margin(0.001f));
+      REQUIRE(weight.b == Catch::Approx(eval.b * cosWi / pdf).margin(0.001f));
     }
   }
 }
@@ -403,4 +405,56 @@ TEST_CASE("ConductorBSDF evaluate: rougher surface has lower peak at retroreflec
 
   // Smoother surface concentrates more energy in the specular peak
   REQUIRE(r_smooth.r > r_rough.r);
+}
+
+// -----------------------------------------------------------------------
+// Energy conservation
+// -----------------------------------------------------------------------
+
+TEST_CASE("ConductorBSDF energy conservation: reflectance <= 1 for white albedo") {
+  Texture tex = makeWhiteTex();
+  ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.5f);
+  float cosines[] = { 0.2f, 0.4f, 0.6f, 0.8f, 1.0f };
+  for (float c : cosines) {
+    float s = sqrtf(1.0f - c * c);
+    ShadingData sd = makeTestSD(Vec3(s, 0.0f, c));
+    float r = estimateReflectance(&bsdf, sd, 2000);
+    REQUIRE(r <= 1.05f);
+  }
+}
+
+// -----------------------------------------------------------------------
+// Chi-square: sampled distribution matches PDF
+// -----------------------------------------------------------------------
+
+TEST_CASE("ConductorBSDF chi-square: sampled distribution matches PDF") {
+  Texture tex = makeWhiteTex();
+  // roughness=0.9 gives a broad lobe that distributes well across 16×16 bins;
+  // roughness=0.5 produces a lobe too narrow for 16-bin discretisation to be accurate.
+  ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.9f);
+  // 45° wo tests the asymmetric lobe well
+  ShadingData sd = makeTestSD(Vec3(sqrtf(0.5f), 0.0f, sqrtf(0.5f)));
+  REQUIRE(chiSquareTest(&bsdf, sd));
+}
+
+// -----------------------------------------------------------------------
+// Roughness = 0 collapses to mirror
+// -----------------------------------------------------------------------
+
+TEST_CASE("ConductorBSDF roughness=0 collapses to mirror direction") {
+  Texture tex = makeWhiteTex();
+  ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.0f);
+  Vec3 wo = Vec3(0.5f, 0.0f, sqrtf(0.75f)); // 30° from normal
+  ShadingData sd = makeTestSD(wo);
+  // Expected mirror direction in world space
+  Vec3 woLocal    = sd.frame.toLocal(wo);
+  Vec3 mirrorWorld = sd.frame.toWorld(ShadingHelper::reflect(woLocal));
+  MTRandom sampler;
+  for (int i = 0; i < 20; i++) {
+    Colour col; float pdf;
+    Vec3 wi = bsdf.sample(sd, &sampler, col, pdf);
+    REQUIRE(wi.x == Catch::Approx(mirrorWorld.x).margin(1e-4f));
+    REQUIRE(wi.y == Catch::Approx(mirrorWorld.y).margin(1e-4f));
+    REQUIRE(wi.z == Catch::Approx(mirrorWorld.z).margin(1e-4f));
+  }
 }

@@ -3,6 +3,7 @@
 #include "shading.h"
 #include "texture.h"
 #include "sampling.h"
+#include "bsdf_test_utils.h"
 #include <cmath>
 
 static Texture makeWhiteTex() { Texture t; t.loadDefault(); return t; }
@@ -299,4 +300,23 @@ TEST_CASE("GlassBSDF sample: air→glass never TIRs, some samples always refract
   }
   // With the bug all samples were TIR-reflected; with the fix most should refract
   REQUIRE(refractCount > 100);
+}
+
+// -----------------------------------------------------------------------
+// Energy conservation
+// -----------------------------------------------------------------------
+
+TEST_CASE("GlassBSDF energy conservation: white albedo is lossless (reflectance == 1)") {
+  // Glass is a pure dielectric — every photon is either reflected or refracted
+  // without absorption. With white albedo, reflectedColour = albedo = 1 in
+  // both branches, so the Monte Carlo estimate should be exactly 1.0.
+  Texture tex = makeWhiteTex();
+  GlassBSDF bsdf(&tex, GLASS, AIR);
+  float cosines[] = { 0.2f, 0.5f, 0.8f, 1.0f };
+  for (float c : cosines) {
+    float s = sqrtf(1.0f - c * c);
+    ShadingData sd = makeTestSD(Vec3(s, 0.0f, c));
+    float r = estimateReflectance(&bsdf, sd, 500);
+    REQUIRE(r == Catch::Approx(1.0f).margin(0.05f));
+  }
 }
