@@ -14,8 +14,8 @@ void Scene::load(const std::string& sceneName) {
 }
 
 void Scene::loadCamera(GEMLoader::GEMScene& gemscene) {
-  int width  = gemscene.findProperty("width").getValue(1920);
-  int height = gemscene.findProperty("height").getValue(1080);
+  width  = gemscene.findProperty("width").getValue(1920);
+  height = gemscene.findProperty("height").getValue(1080);
   float fov  = gemscene.findProperty("fov").getValue(45.0f);
 
   Vec3 from, to, up;

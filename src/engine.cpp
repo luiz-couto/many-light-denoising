@@ -1,8 +1,9 @@
 #include "engine.h"
 
-Engine::Engine():
-  window(Config::TITLE, Config::WIDTH, Config::HEIGHT),
-  frameBuffer(Config::WIDTH * Config::HEIGHT * 3, 0) {}
+Engine::Engine(const std::string& scenePath):
+  renderer(scenePath),
+  window(Config::TITLE, renderer.scene.width, renderer.scene.height),
+  frameBuffer(renderer.scene.width * renderer.scene.height * 3, 0) {}
 
 void Engine::run() {
   renderer.render();

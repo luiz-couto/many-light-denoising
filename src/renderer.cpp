@@ -5,8 +5,11 @@
 #include <thread>
 #include <functional>
 
-Renderer::Renderer() {
-  film.init(Config::WIDTH, Config::HEIGHT);
+Renderer::Renderer() {}
+
+Renderer::Renderer(const std::string& scenePath) {
+  scene.load(scenePath);
+  film.init(scene.width, scene.height);
 }
 
 void Renderer::render() {
@@ -29,8 +32,8 @@ void Renderer::render() {
 }
 
 void Renderer::renderTile(int threadId, std::atomic<unsigned int>& tileId, MTRandom& sampler) {
-  int tilesX = (Config::WIDTH  + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
-  int tilesY = (Config::HEIGHT + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
+  int tilesX = (scene.width  + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
+  int tilesY = (scene.height + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
   int totalTiles = tilesX * tilesY;
 
   while (true) {
@@ -41,8 +44,8 @@ void Renderer::renderTile(int threadId, std::atomic<unsigned int>& tileId, MTRan
     int tileRow = tile / tilesX;
     int xStart = tileCol * Config::TILE_SIZE;
     int yStart = tileRow * Config::TILE_SIZE;
-    int xEnd = std::min(xStart + Config::TILE_SIZE, Config::WIDTH);
-    int yEnd = std::min(yStart + Config::TILE_SIZE, Config::HEIGHT);
+    int xEnd = std::min(xStart + Config::TILE_SIZE, scene.width);
+    int yEnd = std::min(yStart + Config::TILE_SIZE, scene.height);
 
     for (int y = yStart; y < yEnd; y++) {
       for (int x = xStart; x < xEnd; x++) {

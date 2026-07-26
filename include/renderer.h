@@ -2,6 +2,7 @@
 #define RENDERER_H
 
 #include <atomic>
+#include <string>
 #include "config.h"
 #include "scene.h"
 #include "film.h"
@@ -12,6 +13,7 @@ public:
   Film film;
 
   Renderer();
+  Renderer(const std::string& scenePath);
   void renderTile(int threadId, std::atomic<unsigned int>& tileId, MTRandom& sampler);
   void render();
 };

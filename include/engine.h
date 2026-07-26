@@ -1,13 +1,14 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
+#include <string>
 #include <vector>
 #include "window.h"
 #include "renderer.h"
 
 class Engine {
   public:
-    Engine();
+    Engine(const std::string& scenePath);
 
     // Main loop
     void run();

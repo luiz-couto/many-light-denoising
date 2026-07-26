@@ -3,7 +3,7 @@
 
 int main() {
   try {
-    Engine engine;
+    Engine engine(Config::SCENE_PATH);
     engine.run();
   } catch (const std::exception& err) {
     std::println("Fatal error: {}", err.what());

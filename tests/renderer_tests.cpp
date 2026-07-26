@@ -35,6 +35,9 @@ public:
   Vec3 sampleDirectionFromLight(Sampler*, float& pdf) override { pdf = 1.0f; return Vec3(0, 1, 0); }
 };
 
+static constexpr int TEST_W = 800;
+static constexpr int TEST_H = 600;
+
 // Large +Z triangle that covers the entire camera frustum.
 // Camera at (0,0,5) looking at origin, FOV 45, aspect 800/600.
 // At z=0 the frustum is ~±2.1 units tall — triangle vertices at ±10 cover it fully.
@@ -48,10 +51,14 @@ static void setupScene(Renderer& r, RendererMockBSDF& mat, RendererMockLight& bg
   r.scene.init({tri}, {&mat}, &bg);
   r.scene.build();
 
-  float aspect = (float)Config::WIDTH / (float)Config::HEIGHT;
+  r.scene.width  = TEST_W;
+  r.scene.height = TEST_H;
+  r.film.init(TEST_W, TEST_H);
+
+  float aspect = (float)TEST_W / (float)TEST_H;
   Matrix P = Matrix::perspective(0.001f, 1000.0f, aspect, 45.0f);
   Matrix V = Matrix::lookAt(Vec3(0, 0, 5), Vec3(0, 0, 0), Vec3(0, 1, 0)).invert();
-  r.scene.camera.init(P, Config::WIDTH, Config::HEIGHT);
+  r.scene.camera.init(P, TEST_W, TEST_H);
   r.scene.camera.updateView(V);
 }
 
@@ -69,8 +76,8 @@ TEST_CASE("Renderer renderTile: +Z triangle gives (0.5, 0.5, 1.0) at center pixe
   MTRandom sampler;
   r.renderTile(0, tileId, sampler);
 
-  int cx = Config::WIDTH  / 2;
-  int cy = Config::HEIGHT / 2;
+  int cx = r.scene.width  / 2;
+  int cy = r.scene.height / 2;
   Colour& px = r.film.film[cy * r.film.width + cx];
   REQUIRE(px.r == Catch::Approx(0.5f).margin(0.01f));
   REQUIRE(px.g == Catch::Approx(0.5f).margin(0.01f));
@@ -83,8 +90,8 @@ TEST_CASE("Renderer renderTile: out-of-range tileId does nothing") {
   Renderer r;
   setupScene(r, mat, bg);
 
-  int tilesX = (Config::WIDTH  + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
-  int tilesY = (Config::HEIGHT + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
+  int tilesX = (r.scene.width  + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
+  int tilesY = (r.scene.height + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
   std::atomic<unsigned int> tileId((unsigned int)(tilesX * tilesY));
   MTRandom sampler;
   r.renderTile(0, tileId, sampler);
@@ -102,8 +109,8 @@ TEST_CASE("Renderer renderTile: all tiles exhausted after single-thread run") {
   Renderer r;
   setupScene(r, mat, bg);
 
-  int tilesX = (Config::WIDTH  + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
-  int tilesY = (Config::HEIGHT + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
+  int tilesX = (r.scene.width  + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
+  int tilesY = (r.scene.height + Config::TILE_SIZE - 1) / Config::TILE_SIZE;
   int totalTiles = tilesX * tilesY;
 
   std::atomic<unsigned int> tileId(0);
@@ -136,8 +143,8 @@ TEST_CASE("Renderer render: film has non-zero values after render with geometry"
 
   r.render();
 
-  int cx = Config::WIDTH  / 2;
-  int cy = Config::HEIGHT / 2;
+  int cx = r.scene.width  / 2;
+  int cy = r.scene.height / 2;
   Colour px = r.film.film[cy * r.film.width + cx];
   REQUIRE(px.b > 0.0f);
 }
@@ -179,8 +186,8 @@ TEST_CASE("Renderer render: same result regardless of thread count") {
   setupScene(r2, mat, bg);
   r2.render();
 
-  int cx = Config::WIDTH  / 2;
-  int cy = Config::HEIGHT / 2;
+  int cx = r1.scene.width  / 2;
+  int cy = r1.scene.height / 2;
   Colour p1 = r1.film.film[cy * r1.film.width + cx];
   Colour p2 = r2.film.film[cy * r2.film.width + cx];
 

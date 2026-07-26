@@ -16,6 +16,9 @@ public:
   Camera camera;
   AABB bounds;
 
+  int width = 0;
+  int height = 0;
+
   std::vector<Triangle> triangles;
   std::vector<Light*> lights;
   std::vector<BSDF*> materials;
