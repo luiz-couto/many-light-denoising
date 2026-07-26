@@ -1,9 +1,10 @@
 #ifndef SHADING_H
 #define SHADING_H
 
+#include <cfloat>
 #include "core.h"
 #include "sampling.h"
-#include <cfloat>
+#include "texture.h"
 
 class BSDF;
 
@@ -25,24 +26,6 @@ public:
 		bsdf = nullptr;
 	}
 };
-
-class BSDF {
-public:
-	Colour emission;
-
-	virtual ~BSDF() = default;
-	virtual Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) = 0;
-	virtual Colour evaluate(const ShadingData& shadingData, const Vec3& wi) = 0;
-	virtual float PDF(const ShadingData& shadingData, const Vec3& wi) = 0;
-	virtual bool isPureSpecular() = 0;
-	virtual bool isTwoSided() = 0;
-	virtual float mask(const ShadingData& shadingData) = 0;
-
-	bool isLight();
-	void addLight(Colour _emission);
-	Colour emit(const ShadingData& shadingData, const Vec3& wi);
-};
-
 
 namespace ShadingHelper {
   // Computes the cosine of the transmitted angle via Snell's law.
@@ -78,6 +61,97 @@ namespace ShadingHelper {
   // GGX normal distribution function evaluated at half-vector h.
   // h must be in the shading frame (normal = (0,0,1)).
   float Dggx(Vec3 h, float alpha);
-}
+};
+
+class BSDF {
+public:
+	Colour emission;
+
+	virtual ~BSDF() = default;
+	virtual Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) = 0;
+	virtual Colour evaluate(const ShadingData& shadingData, const Vec3& wi) = 0;
+	virtual float PDF(const ShadingData& shadingData, const Vec3& wi) = 0;
+	virtual bool isPureSpecular() = 0;
+	virtual bool isTwoSided() = 0;
+	virtual float mask(const ShadingData& shadingData) = 0;
+
+	bool isLight();
+	void addLight(Colour _emission);
+	Colour emit(const ShadingData& shadingData, const Vec3& wi);
+};
+
+class DiffuseBSDF : public BSDF {
+public:
+  Texture* albedo;
+
+  DiffuseBSDF() = default;
+  DiffuseBSDF(Texture* _albedo);
+
+  Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
+  Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
+  float PDF(const ShadingData& shadingData, const Vec3& wi) override;
+  bool isPureSpecular() override;
+  bool isTwoSided() override;
+  float mask(const ShadingData& shadingData) override;
+};
+
+class MirrorBSDF : public BSDF {
+public:
+  Texture* albedo;
+
+  MirrorBSDF() = default;
+  MirrorBSDF(Texture* _albedo);
+
+  Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
+  Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
+  float PDF(const ShadingData& shadingData, const Vec3& wi) override;
+  bool isPureSpecular() override;
+  bool isTwoSided() override;
+  float mask(const ShadingData& shadingData) override;
+};
+
+class ConductorBSDF : public BSDF {
+public:
+  Texture* albedo;
+	Colour eta;
+	Colour k;
+	float alpha;
+
+  Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
+  Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
+  float PDF(const ShadingData& shadingData, const Vec3& wi) override;
+  bool isPureSpecular() override;
+  bool isTwoSided() override;
+  float mask(const ShadingData& shadingData) override;
+};
+
+class GlassBSDF : public BSDF {
+public:
+  Texture* albedo;
+	float intIOR;
+	float extIOR;
+
+  Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
+  Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
+  float PDF(const ShadingData& shadingData, const Vec3& wi) override;
+  bool isPureSpecular() override;
+  bool isTwoSided() override;
+  float mask(const ShadingData& shadingData) override;
+};
+
+class PlasticBSDF : public BSDF {
+public:
+  Texture* albedo;
+	float intIOR;
+	float extIOR;
+	float alpha;
+
+  Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
+  Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
+  float PDF(const ShadingData& shadingData, const Vec3& wi) override;
+  bool isPureSpecular() override;
+  bool isTwoSided() override;
+  float mask(const ShadingData& shadingData) override;
+};
 
 #endif // SHADING_H

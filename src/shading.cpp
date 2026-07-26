@@ -99,3 +99,34 @@ float ShadingHelper::Dggx(Vec3 h, float alpha) {
   float D = alphaSqr / (M_PI * (term * term));
   return D;
 }
+
+DiffuseBSDF::DiffuseBSDF(Texture* _albedo): albedo(_albedo) {}
+
+Vec3 DiffuseBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
+  Vec3 wi = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
+  reflectedColour = albedo->sample(shadingData.tu, shadingData.tv);
+  wi = shadingData.frame.toWorld(wi);
+  pdf = PDF(shadingData, wi);
+  return wi;
+}
+
+Colour DiffuseBSDF::evaluate(const ShadingData& shadingData, const Vec3& wi) {
+  return albedo->sample(shadingData.tu, shadingData.tv) / PI;
+}
+
+float DiffuseBSDF::PDF(const ShadingData& shadingData, const Vec3& wi) {
+  Vec3 localWi = shadingData.frame.toLocal(wi);
+  return SamplingDistributions::cosineHemispherePDF(localWi);
+}
+
+bool DiffuseBSDF::isPureSpecular() {
+  return false;
+}
+
+bool DiffuseBSDF::isTwoSided() {
+  return true;
+}
+
+float DiffuseBSDF::mask(const ShadingData& shadingData) {
+  return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+}
