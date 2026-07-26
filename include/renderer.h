@@ -3,7 +3,6 @@
 
 #include <atomic>
 #include <string>
-#include "config.h"
 #include "scene.h"
 #include "film.h"
 

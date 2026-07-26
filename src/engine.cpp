@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "config.h"
 
 Engine::Engine(const std::string& scenePath):
   renderer(scenePath),

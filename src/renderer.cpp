@@ -1,5 +1,6 @@
 #include "renderer.h"
 #include "scene.h"
+#include "config.h"
 #include <cfloat>
 #include <vector>
 #include <thread>

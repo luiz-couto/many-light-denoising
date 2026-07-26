@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include "renderer.h"
 #include "geometry.h"
+#include "config.h"
 #include <atomic>
 #include <cfloat>
 
