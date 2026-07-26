@@ -120,6 +120,23 @@ public:
   float mask(const ShadingData& shadingData) override;
 };
 
+class GlassBSDF : public BSDF {
+public:
+  Texture* albedo;
+	float intIOR;
+	float extIOR;
+
+  GlassBSDF() = default;
+	GlassBSDF(Texture* _albedo, float _intIOR, float _extIOR);
+
+  Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
+  Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
+  float PDF(const ShadingData& shadingData, const Vec3& wi) override;
+  bool isPureSpecular() override;
+  bool isTwoSided() override;
+  float mask(const ShadingData& shadingData) override;
+};
+
 class ConductorBSDF : public BSDF {
 public:
   Texture* albedo;
@@ -138,29 +155,15 @@ public:
   float mask(const ShadingData& shadingData) override;
 };
 
-class GlassBSDF : public BSDF {
-public:
-  Texture* albedo;
-	float intIOR;
-	float extIOR;
-
-  GlassBSDF() = default;
-	GlassBSDF(Texture* _albedo, float _intIOR, float _extIOR);
-
-  Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
-  Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
-  float PDF(const ShadingData& shadingData, const Vec3& wi) override;
-  bool isPureSpecular() override;
-  bool isTwoSided() override;
-  float mask(const ShadingData& shadingData) override;
-};
-
 class PlasticBSDF : public BSDF {
 public:
   Texture* albedo;
 	float intIOR;
 	float extIOR;
 	float alpha;
+
+  PlasticBSDF() = default;
+	PlasticBSDF(Texture* _albedo, float _intIOR, float _extIOR, float roughness);
 
   Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
   Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;

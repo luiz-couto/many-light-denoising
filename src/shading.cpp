@@ -330,3 +330,97 @@ bool GlassBSDF::isTwoSided() {
 float GlassBSDF::mask(const ShadingData& shadingData) {
   return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
 }
+
+PlasticBSDF::PlasticBSDF(Texture* _albedo, float _intIOR, float _extIOR, float roughness)
+  : albedo(_albedo), intIOR(_intIOR), extIOR(_extIOR) {
+    alpha = roughness * roughness;
+  }
+
+// Mixture sampling: with probability F sample the GGX specular lobe, otherwise cosine-sample
+// the diffuse lobe. The pdf is the full mixture F·pdfGGX + (1-F)·pdfCosine regardless of which
+// branch was chosen, so the weight f·cosθ/pdf is computed via evaluate() rather than simplified.
+Vec3 PlasticBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
+  Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
+  float fresnel = ShadingHelper::fresnelDielectric(woLocal.z, intIOR, extIOR);
+
+  Vec3 wiLocal;
+  if (sampler->next() < fresnel) {
+    // GGX specular branch — same sampling as ConductorBSDF
+    float s1 = sampler->next();
+    float s2 = sampler->next();
+    float thetaM = acosf(sqrtf((1 - s1) / ((s1 * ((alpha * alpha) - 1)) + 1)));
+    float phiM = 2 * M_PI * s2;
+    Vec3 wm = Vec3(sinf(thetaM) * cosf(phiM), sinf(thetaM) * sinf(phiM), cosf(thetaM));
+    wiLocal = -woLocal + (wm * (2 * wm.dot(woLocal)));
+
+    if (wiLocal.z <= 0.0f || wm.dot(woLocal) <= 0.0f) {
+      pdf = 0.0f;
+      reflectedColour = Colour(0.0f, 0.0f, 0.0f);
+      return shadingData.frame.toWorld(wiLocal);
+    }
+  } else {
+    // Diffuse branch — cosine-weighted hemisphere sampling
+    wiLocal = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
+  }
+
+  Vec3 wiWorld = shadingData.frame.toWorld(wiLocal);
+  pdf = PDF(shadingData, wiWorld);
+  if (pdf <= 0.0f) {
+    reflectedColour = Colour(0.0f, 0.0f, 0.0f);
+    return wiWorld;
+  }
+  reflectedColour = evaluate(shadingData, wiWorld) * wiLocal.z / pdf;
+  return wiWorld;
+}
+
+Colour PlasticBSDF::evaluate(const ShadingData& shadingData, const Vec3& wi) {
+  Vec3 localWi = shadingData.frame.toLocal(wi);
+  Vec3 localWo = shadingData.frame.toLocal(shadingData.wo);
+
+  if (localWi.z <= 0.0f || localWo.z <= 0.0f) return Colour(0.0f, 0.0f, 0.0f);
+
+  Vec3 h = (localWi + localWo).normalize();
+  float gWoWi = ShadingHelper::Gggx(localWi, localWo, alpha);
+  float dWm = ShadingHelper::Dggx(h, alpha);
+  float halfVecAngle = localWo.dot(h);
+  float fresnel = ShadingHelper::fresnelDielectric(halfVecAngle, intIOR, extIOR);
+
+  float term1 = fresnel * gWoWi * dWm;
+  float term2 = 4 * localWo.z * localWi.z;
+  float brdf = term1 / term2;
+
+  Colour albedoSample = albedo->sample(shadingData.tu, shadingData.tv);
+
+  return Colour(brdf, brdf, brdf) + ((albedoSample * (1 - fresnel)) / PI);
+}
+
+// Mixture PDF: F·pdfGGX(wi) + (1-F)·pdfCosine(wi), where F is the dielectric Fresnel
+// at the surface normal (the same branching probability used in sample).
+float PlasticBSDF::PDF(const ShadingData& shadingData, const Vec3& wi) {
+  Vec3 localWi = shadingData.frame.toLocal(wi);
+  Vec3 localWo = shadingData.frame.toLocal(shadingData.wo);
+
+  if (localWi.z <= 0.0f) return 0.0f;
+
+  Vec3 h = (localWi + localWo).normalize();
+  float woDotH = localWo.dot(h);
+  if (woDotH <= 0.0f) return 0.0f;
+
+  float fresnel = ShadingHelper::fresnelDielectric(localWo.z, intIOR, extIOR);
+  float pdfGGX = (ShadingHelper::Dggx(h, alpha) * h.z) / (4.0f * woDotH);
+  float pdfCosine = localWi.z / M_PI;
+
+  return fresnel * pdfGGX + (1.0f - fresnel) * pdfCosine;
+}
+
+bool PlasticBSDF::isPureSpecular() {
+  return false;
+}
+
+bool PlasticBSDF::isTwoSided() {
+  return true;
+}
+
+float PlasticBSDF::mask(const ShadingData& shadingData) {
+  return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+}
