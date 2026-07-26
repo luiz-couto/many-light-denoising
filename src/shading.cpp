@@ -130,3 +130,37 @@ bool DiffuseBSDF::isTwoSided() {
 float DiffuseBSDF::mask(const ShadingData& shadingData) {
   return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
 }
+
+MirrorBSDF::MirrorBSDF(Texture* _albedo, Colour _eta, Colour _k)
+  : albedo(_albedo), eta(_eta), k(_k) {}
+
+Vec3 MirrorBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
+  Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
+  Vec3 wiLocal(-woLocal.x, -woLocal.y, woLocal.z);
+  float cosTheta = fabsf(wiLocal.z);
+  reflectedColour = ShadingHelper::fresnelConductor(cosTheta, eta, k) * albedo->sample(shadingData.tu, shadingData.tv);
+  pdf = 1.0f;
+  return shadingData.frame.toWorld(wiLocal);
+}
+
+Colour MirrorBSDF::evaluate(const ShadingData& shadingData, const Vec3& wi) {
+  Vec3 localWi = shadingData.frame.toLocal(wi);
+  float cosTheta = fabsf(localWi.z);
+  return ShadingHelper::fresnelConductor(cosTheta, eta, k) * albedo->sample(shadingData.tu, shadingData.tv) / cosTheta;
+}
+
+float MirrorBSDF::PDF(const ShadingData& shadingData, const Vec3& wi) {
+  return 0;
+}
+
+bool MirrorBSDF::isPureSpecular() {
+  return true;
+}
+
+bool MirrorBSDF::isTwoSided() {
+  return true;
+}
+
+float MirrorBSDF::mask(const ShadingData& shadingData) {
+  return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+}

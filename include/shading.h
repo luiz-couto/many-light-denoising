@@ -98,9 +98,11 @@ public:
 class MirrorBSDF : public BSDF {
 public:
   Texture* albedo;
+  Colour eta;
+  Colour k;
 
   MirrorBSDF() = default;
-  MirrorBSDF(Texture* _albedo);
+  MirrorBSDF(Texture* _albedo, Colour _eta, Colour _k);
 
   Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
   Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
