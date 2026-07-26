@@ -37,7 +37,7 @@ namespace ShadingHelper {
   // Uses both the incident and transmitted angles (transmitted via Snell's law internally).
   float fresnelDielectric(float cosTheta, float intIOR, float extIOR);
 
-  // Overload taking the IOR ratio n = intIOR / extIOR directly.
+  // Overload taking the IOR ratio n = n_t/n_i directly (same convention as the two-IOR overload).
   float fresnelDielectric(float cosTheta, float n);
 
   // Fresnel intensity reflectance (already squared) for a conductor (complex IOR n+ik).
@@ -61,6 +61,14 @@ namespace ShadingHelper {
   // GGX normal distribution function evaluated at half-vector h.
   // h must be in the shading frame (normal = (0,0,1)).
   float Dggx(Vec3 h, float alpha);
+
+  // Specular reflection of wo about the surface normal in the shading frame.
+  Vec3 reflect(Vec3 wo_local);
+
+  // Snell's law refraction in the shading frame.
+  // n = n_t/n_i (same convention as fresnelDielectric). Returns the refracted direction,
+  // or the reflected direction when total internal reflection occurs (tir set to true).
+  Vec3 refract(Vec3 wo_local, float n, bool& tir);
 };
 
 class BSDF {
@@ -135,6 +143,9 @@ public:
   Texture* albedo;
 	float intIOR;
 	float extIOR;
+
+  GlassBSDF() = default;
+	GlassBSDF(Texture* _albedo, float _intIOR, float _extIOR);
 
   Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
   Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;

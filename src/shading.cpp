@@ -100,8 +100,33 @@ float ShadingHelper::Dggx(Vec3 h, float alpha) {
   return D;
 }
 
+// Reflects wo about the surface normal (z-axis in local space): flips the tangential
+// components and preserves the normal component.
+Vec3 ShadingHelper::reflect(Vec3 wo_local) {
+  return Vec3(-wo_local.x, -wo_local.y, wo_local.z);
+}
+
+// Computes the Snell's law refracted direction. The tangential components scale by
+// eta = n_i/n_t (Snell: n_i·sin_i = n_t·sin_t); the normal component flips sign to
+// send the ray through the surface. Falls back to reflection on TIR (sets tir=true).
+Vec3 ShadingHelper::refract(Vec3 wo_local, float n, bool& tir) {
+  // n = n_t/n_i; entering when wo_local.z > 0, exiting when wo_local.z < 0
+  float cosTheta = fabsf(wo_local.z);
+  float cosThetaT = getCosThetaT(cosTheta, n, tir);
+
+  if (tir) return reflect(wo_local);
+
+  float eta = 1.0f / n; // n_i/n_t for the Snell's law direction formula
+  float sign = (wo_local.z >= 0.0f) ? 1.0f : -1.0f;
+
+  return Vec3(-eta * wo_local.x, -eta * wo_local.y, -cosThetaT * sign);
+}
+
 DiffuseBSDF::DiffuseBSDF(Texture* _albedo): albedo(_albedo) {}
 
+// Cosine-weighted hemisphere sampling. PDF = cos(θ)/π matches the cos(θ) in the
+// rendering equation, so the MC weight (albedo/π)·cos(θ)/(cos(θ)/π) simplifies to
+// albedo — no division by π needed in reflectedColour.
 Vec3 DiffuseBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
   Vec3 wi = SamplingDistributions::cosineSampleHemisphere(sampler->next(), sampler->next());
   reflectedColour = albedo->sample(shadingData.tu, shadingData.tv);
@@ -110,6 +135,8 @@ Vec3 DiffuseBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colou
   return wi;
 }
 
+// Lambertian BRDF: f = albedo/π. The 1/π factor ensures energy conservation —
+// integrating f·cos(θ) over the hemisphere gives albedo (≤ 1).
 Colour DiffuseBSDF::evaluate(const ShadingData& shadingData, const Vec3& wi) {
   return albedo->sample(shadingData.tu, shadingData.tv) / PI;
 }
@@ -134,6 +161,8 @@ float DiffuseBSDF::mask(const ShadingData& shadingData) {
 MirrorBSDF::MirrorBSDF(Texture* _albedo, Colour _eta, Colour _k)
   : albedo(_albedo), eta(_eta), k(_k) {}
 
+// Perfect specular reflection. The BRDF is a delta distribution, so only one direction
+// contributes: pdf = 1, and the MC weight f·cos(θ)/pdf = F(cos(θ))·albedo.
 Vec3 MirrorBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
   Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
   Vec3 wiLocal(-woLocal.x, -woLocal.y, woLocal.z);
@@ -143,6 +172,8 @@ Vec3 MirrorBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour
   return shadingData.frame.toWorld(wiLocal);
 }
 
+// The delta BRDF is f = F·albedo·δ(wi − wr)/cos(θ). For the exact mirror direction
+// f·cos(θ) = F·albedo, so f = F·albedo/cos(θ). Used by MIS to weight light samples.
 Colour MirrorBSDF::evaluate(const ShadingData& shadingData, const Vec3& wi) {
   Vec3 localWi = shadingData.frame.toLocal(wi);
   float cosTheta = fabsf(localWi.z);
@@ -170,6 +201,10 @@ ConductorBSDF::ConductorBSDF(Texture* _albedo, Colour _eta, Colour _k, float rou
     alpha = roughness * roughness;
   }
 
+// GGX NDF importance sampling. A microfacet normal wm is drawn from D(wm), then wo is
+// reflected about wm to get wi. The PDF in solid angle measure is D(wm)·cos(θm) / (4·dot(wo,wm)),
+// which is the Jacobian of the half-vector mapping from microfacet normals to outgoing directions.
+// Samples whose reflected wi goes below the surface are discarded (pdf = 0, black weight).
 Vec3 ConductorBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
   float s1 = sampler->next();
   float s2 = sampler->next();
@@ -196,6 +231,9 @@ Vec3 ConductorBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Col
   return wiWorld;
 }
 
+// Cook-Torrance microfacet BRDF: f = F(dot(wo,h)) · G(wi,wo) · D(h) / (4·cos(θo)·cos(θi)).
+// F is the conductor Fresnel evaluated at the half-vector angle (not the surface normal angle).
+// G is the Smith height-correlated masking-shadowing term. D is the GGX normal distribution.
 Colour ConductorBSDF::evaluate(const ShadingData& shadingData, const Vec3& wi) {
   Vec3 localWi = shadingData.frame.toLocal(wi);
   Vec3 localWo = shadingData.frame.toLocal(shadingData.wo);
@@ -237,5 +275,58 @@ bool ConductorBSDF::isTwoSided() {
 }
 
 float ConductorBSDF::mask(const ShadingData& shadingData) {
+  return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+}
+
+GlassBSDF::GlassBSDF(Texture* _albedo, float _intIOR, float _extIOR)
+  : albedo(_albedo), intIOR(_intIOR), extIOR(_extIOR) {}
+
+// Stochastic Fresnel sampling: reflect with probability F, refract with probability 1-F.
+// The pdf equals the chosen branch probability, so the MC weight f·cos(θ)/pdf simplifies
+// to albedo in both branches. TIR forces reflection (F = 1, pdf = 1).
+Vec3 GlassBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
+  Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
+
+  bool isEntering = woLocal.z > 0.0f;
+  float n = isEntering ? (intIOR / extIOR) : (extIOR / intIOR);
+
+  float cosTheta = fabsf(woLocal.z);
+  Colour albedoVal = albedo->sample(shadingData.tu, shadingData.tv);
+
+  bool tir;
+  Vec3 wtLocal = ShadingHelper::refract(woLocal, n, tir);
+  float fresnel = tir ? 1.0f : ShadingHelper::fresnelDielectric(cosTheta, n);
+
+  reflectedColour = albedoVal; // weight = albedo in both branches (Fresnel prob cancels with pdf)
+
+  if (sampler->next() < fresnel) {
+    pdf = fresnel;
+    return shadingData.frame.toWorld(ShadingHelper::reflect(woLocal));
+  }
+
+  pdf = 1.0f - fresnel;
+  return shadingData.frame.toWorld(wtLocal);
+}
+
+// Delta BSDF: the exact reflect/refract directions have measure zero and cannot be
+// hit by an arbitrary wi, so evaluate always returns zero. Contribution comes only
+// from sample(), not from direct-lighting or MIS calls to evaluate().
+Colour GlassBSDF::evaluate(const ShadingData&, const Vec3&) {
+  return Colour(0.0f, 0.0f, 0.0f);
+}
+
+float GlassBSDF::PDF(const ShadingData& shadingData, const Vec3& wi) {
+  return 0;
+}
+
+bool GlassBSDF::isPureSpecular() {
+  return true;
+}
+
+bool GlassBSDF::isTwoSided() {
+  return false;
+}
+
+float GlassBSDF::mask(const ShadingData& shadingData) {
   return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
 }
