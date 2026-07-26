@@ -119,6 +119,9 @@ public:
 	Colour k;
 	float alpha;
 
+  ConductorBSDF() = default;
+	ConductorBSDF(Texture* _albedo, Colour _eta, Colour _k, float roughness);
+
   Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) override;
   Colour evaluate(const ShadingData& shadingData, const Vec3& wi) override;
   float PDF(const ShadingData& shadingData, const Vec3& wi) override;

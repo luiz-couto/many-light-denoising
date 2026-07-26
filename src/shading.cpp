@@ -164,3 +164,78 @@ bool MirrorBSDF::isTwoSided() {
 float MirrorBSDF::mask(const ShadingData& shadingData) {
   return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
 }
+
+ConductorBSDF::ConductorBSDF(Texture* _albedo, Colour _eta, Colour _k, float roughness)
+  : albedo(_albedo), eta(_eta), k(_k) {
+    alpha = roughness * roughness;
+  }
+
+Vec3 ConductorBSDF::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
+  float s1 = sampler->next();
+  float s2 = sampler->next();
+
+  float thetaM = (1 - s1) / ((s1 * ((alpha * alpha) - 1)) + 1);
+  thetaM = acosf(sqrtf(thetaM));
+  float phiM = 2 * M_PI * s2;
+
+  Vec3 woLocal = shadingData.frame.toLocal(shadingData.wo);
+
+  Vec3 wm = Vec3(sinf(thetaM) * cosf(phiM), sinf(thetaM) * sinf(phiM), cosf(thetaM));
+  Vec3 wi = -woLocal + (wm * (2 * wm.dot(woLocal)));
+  Vec3 wiWorld = shadingData.frame.toWorld(wi);
+
+  // Reflected direction can go below the surface for steep microfacets, so null sample
+  if (wi.z <= 0.0f || wm.dot(woLocal) <= 0.0f) {
+    pdf = 0.0f;
+    reflectedColour = Colour(0.0f, 0.0f, 0.0f);
+    return wiWorld;
+  }
+
+  pdf = (ShadingHelper::Dggx(wm, alpha) * cosf(thetaM)) / (4 * wm.dot(woLocal));
+  reflectedColour = evaluate(shadingData, wiWorld);
+  return wiWorld;
+}
+
+Colour ConductorBSDF::evaluate(const ShadingData& shadingData, const Vec3& wi) {
+  Vec3 localWi = shadingData.frame.toLocal(wi);
+  Vec3 localWo = shadingData.frame.toLocal(shadingData.wo);
+
+  Vec3 h = (localWi + localWo).normalize();
+  float gWoWi = ShadingHelper::Gggx(localWi, localWo, alpha);
+  float dWm = ShadingHelper::Dggx(h, alpha);
+  float halfVecAngle = localWo.dot(h);
+  Colour fresnel = ShadingHelper::fresnelConductor(halfVecAngle, eta, k);
+
+  Colour term1 = fresnel * gWoWi * dWm;
+  float term2 = 4 * localWo.z * localWi.z;
+  Colour brdf = term1 / term2;
+
+  return brdf * albedo->sample(shadingData.tu, shadingData.tv);
+}
+
+float ConductorBSDF::PDF(const ShadingData& shadingData, const Vec3& wi) {
+  Vec3 localWi = shadingData.frame.toLocal(wi);
+  Vec3 localWo = shadingData.frame.toLocal(shadingData.wo);
+
+  Vec3 h = (localWi + localWo).normalize();
+  float woDotH = localWo.dot(h);
+  if (woDotH <= 0.0f) return 0.0f;
+  
+  float dWm = ShadingHelper::Dggx(h, alpha);
+  float cosThetaM = h.z;
+
+  float pdf = (dWm * cosThetaM) / (4 * woDotH);
+  return pdf;
+}
+
+bool ConductorBSDF::isPureSpecular() {
+  return false;
+}
+
+bool ConductorBSDF::isTwoSided() {
+  return true;
+}
+
+float ConductorBSDF::mask(const ShadingData& shadingData) {
+  return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+}
