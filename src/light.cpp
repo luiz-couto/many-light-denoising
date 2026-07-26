@@ -1,4 +1,5 @@
 #include "light.h"
+#include <algorithm>
 
 // Default stub. only needed for bidirectional methods.
 // Lights that don't support it inherit this and return pdf=0 to signal "not available".
@@ -82,5 +83,169 @@ float BackgroundColour::totalIntegratedPower() {
 Vec3 BackgroundColour::sampleDirectionFromLight(Sampler* sampler, float& pdf) {
   Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
   pdf = SamplingDistributions::uniformSpherePDF(wi);
+  return wi;
+}
+
+EnvironmentMap::EnvironmentMap(Texture* _env, Vec3 _sceneCentre, float _sceneRadius)
+  : env(_env), sceneCentre(_sceneCentre), sceneRadius(_sceneRadius) {
+  buildCDF();
+  totalIntegratedPower();
+}
+
+EnvironmentMap::~EnvironmentMap() {
+  for (int u = 0; u < env->height; u++) {
+    delete[] rowCDF[u];
+  }
+  delete[] rowCDF;
+  delete[] columnCDF;
+}
+
+int EnvironmentMap::cdfBinarySearch(float* list, int length, float s) {
+  int left = 0;
+  int right = length - 1;
+
+  while (left < right) {
+    int mid = (left + right) / 2;
+    if (list[mid] >= s) {
+      right = mid;
+    } else {
+      left = mid + 1;
+    }
+  }
+
+  return left;
+}
+
+void EnvironmentMap::buildCDF() {
+  int colorCounter = 0;
+  rowCDF = new float*[env->height];
+
+  float sum = 0;
+  for (int u=0; u<env->height; u++) {
+    rowCDF[u] = new float[env->width];
+    for (int v=0; v<env->width; v++) {
+      Colour color = env->texels[colorCounter];
+      colorCounter++;
+
+      float lum = color.lum();
+      float fuv = lum * sinf(M_PI * (float)u / (float)env->height);
+      sum += fuv;
+
+      rowCDF[u][v] = fuv;
+    }
+  }
+
+  this->totalSum = sum;
+  columnCDF = new float[env->height];
+  
+  float columnSum = 0;
+  for (int u=0; u<env->height; u++) {
+    float rowSum = 0;
+    for (int v=0; v<env->width; v++) {
+      float prob = rowCDF[u][v] / sum;
+      rowCDF[u][v] = rowSum + prob;
+      rowSum += prob;
+    }
+    columnCDF[u] = columnSum + rowSum;
+    columnSum += rowSum;
+  }
+}
+
+Vec3 EnvironmentMap::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
+  float s1 = sampler->next();
+  int u = cdfBinarySearch(columnCDF, env->height, s1);
+
+  float s2 = sampler->next();
+  int v = cdfBinarySearch(rowCDF[u], env->width, s2);
+
+  float uTex = (float)u / env->height;
+  float vTex = (float)v / env->width;
+
+  float theta = M_PI * uTex;
+  float phi = 2.0f * M_PI * vTex;
+
+  Vec3 wi = Vec3(sinf(theta) * cosf(phi), cosf(theta), sinf(theta) * sinf(phi));
+  pdf = PDF(shadingData, wi);
+  reflectedColour = evaluate(wi);
+
+  return wi;
+}
+
+Colour EnvironmentMap::evaluate(const Vec3& wi) {
+  float u = atan2f(wi.z, wi.x);
+  u = (u < 0.0f) ? u + (2.0f * M_PI) : u;
+  u = u / (2.0f * M_PI);
+  float v = acosf(std::clamp(wi.y, -1.0f, 1.0f)) / M_PI;
+  return env->sample(u, v);
+}
+
+// p(ω) = lum(u,v) · W·H / (totalSum · 2π²)
+// Derivation: weight = lum·sin(θ), pixel solid angle = sin(θ)·2π²/(W·H) → sin(θ) cancels.
+float EnvironmentMap::PDF(const ShadingData& shadingData, const Vec3& wi) {
+  float u = atan2f(wi.z, wi.x);
+  u = (u < 0.0f) ? u + (2.0f * M_PI) : u;
+  u = u / (2.0f * M_PI);
+
+  float theta = acosf(std::clamp(wi.y, -1.0f, 1.0f));
+  float v = theta / M_PI;
+
+  if (totalSum < 1e-10f) return 0.0f; // fully black environment
+
+  Colour color = env->sample(u, v);
+  float lum = color.lum();
+
+  return lum * (float)(env->width * env->height) / (totalSum * 2.0f * M_PI * M_PI);
+}
+
+bool EnvironmentMap::isArea() {
+  return false;
+}
+
+Vec3 EnvironmentMap::normal(const ShadingData& shadingData, const Vec3& wi) {
+  return -wi;
+}
+
+float EnvironmentMap::totalIntegratedPower() {
+  if (_cachedTotalPower != -1) return _cachedTotalPower;
+
+  float total = 0;
+  for (int i = 0; i < env->height; i++) {
+    float st = sinf(((float)i / (float)env->height) * M_PI);
+    for (int n = 0; n < env->width; n++) {
+      total += (env->texels[(i * env->width) + n].lum() * st);
+    }
+  }
+
+  total = total / (float)(env->width * env->height);
+  total = total * 4.0f * M_PI;
+
+  _cachedTotalPower = total;
+  return total;
+}
+
+Vec3 EnvironmentMap::samplePositionFromLight(Sampler* sampler, float& pdf) {
+  Vec3 p = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
+  p = p * sceneRadius + sceneCentre;
+  pdf = 1.0f / (4.0f * M_PI * sceneRadius * sceneRadius);
+  return p;
+}
+
+Vec3 EnvironmentMap::sampleDirectionFromLight(Sampler* sampler, float& pdf) {
+  float s1 = sampler->next();
+  int u = cdfBinarySearch(columnCDF, env->height, s1);
+
+  float s2 = sampler->next();
+  int v = cdfBinarySearch(rowCDF[u], env->width, s2);
+
+  float uTex = (float)u / env->height;
+  float vTex = (float)v / env->width;
+
+  float theta = M_PI * uTex;
+  float phi = 2.0f * M_PI * vTex;
+
+  Vec3 wi = Vec3(sinf(theta) * cosf(phi), cosf(theta), sinf(theta) * sinf(phi));
+  Colour color = env->sample(uTex, vTex);
+  pdf = (totalSum < 1e-10f) ? 0.0f : color.lum() * (float)(env->width * env->height) / (totalSum * 2.0f * M_PI * M_PI);
+
   return wi;
 }

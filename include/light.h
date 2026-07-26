@@ -49,4 +49,28 @@ public:
   Vec3 sampleDirectionFromLight(Sampler* sampler, float& pdf);
 };
 
+class EnvironmentMap : public Light {
+public:
+  Texture* env;
+  float** rowCDF;
+  float* columnCDF;
+  float totalSum = 0;
+  float _cachedTotalPower = -1;
+  Vec3 sceneCentre;
+  float sceneRadius = 1.0f;
+
+  EnvironmentMap(Texture* _env, Vec3 _sceneCentre, float _sceneRadius);
+  ~EnvironmentMap();
+  int cdfBinarySearch(float* list, int length, float s);
+  void buildCDF();
+  Vec3 sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf);
+  Colour evaluate(const Vec3& wi);
+  float PDF(const ShadingData& shadingData, const Vec3& wi);
+  bool isArea();
+  Vec3 normal(const ShadingData& shadingData, const Vec3& wi);
+  float totalIntegratedPower();
+  Vec3 samplePositionFromLight(Sampler* sampler, float& pdf);
+  Vec3 sampleDirectionFromLight(Sampler* sampler, float& pdf);
+};
+
 #endif // LIGHT_H
