@@ -35,7 +35,7 @@ public:
   Colour computeDirectMIS(const ShadingData& sd, Sampler* sampler);
   void lightSamplingMIS(ShadingData shadingData, Sampler* sampler, Colour &result);
   LightSamplingMISResult lightSamplingMISAreaLight(ShadingData shadingData, Sampler* sampler, Light* sampledLight, float pmf);
-  LightSamplingMISResult lightSamplingMISEnvMap(ShadingData shadingData, Sampler* sampler, Light* sampledLight);
+  LightSamplingMISResult lightSamplingMISEnvMap(ShadingData shadingData, Sampler* sampler, Light* sampledLight, float pmf);
 };
 
 #endif // INTEGRATOR_H

@@ -52,12 +52,31 @@ void Integrator::renderTile(int threadId, std::atomic<unsigned int>& tileId, MTR
   }
 }
 
-Colour Integrator::computeDirectMIS(const ShadingData& sd, Sampler* sampler) {
+// Colour Integrator::computeDirectMIS(const ShadingData& sd, Sampler* sampler) {
 
-}
+// }
 
 void Integrator::lightSamplingMIS(ShadingData shadingData, Sampler* sampler, Colour &result) {
+  float pmf;
+	Light* sampledLight = scene->sampleLightWeighted(sampler, pmf);
+  if (!sampledLight) return;
 
+  LightSamplingMISResult misRes; 
+
+  if (sampledLight->isArea()) {
+    misRes = lightSamplingMISAreaLight(shadingData, sampler, sampledLight, pmf);
+  } else {
+    misRes = lightSamplingMISEnvMap(shadingData, sampler, sampledLight, pmf);
+  }
+
+  float brdfPDF = shadingData.bsdf->PDF(shadingData, misRes.wi);
+  brdfPDF = brdfPDF * misRes.cosThetaLine / misRes.distSqr;
+
+  float weight = misRes.pdf / (misRes.pdf + brdfPDF);
+
+  if (misRes.pdf > 0) {
+    result = result + (misRes.finalColor / misRes.pdf) * weight;
+  }
 }
 
 LightSamplingMISResult Integrator::lightSamplingMISAreaLight(ShadingData shadingData, Sampler* sampler, Light* sampledLight, float pmf) {
@@ -83,4 +102,26 @@ LightSamplingMISResult Integrator::lightSamplingMISAreaLight(ShadingData shading
   float fullPdf = pmf * pdf;
   Colour finalColor = shadingData.bsdf->evaluate(shadingData, wi) * emittedColour * gTerm * isVisible;
   return { finalColor, wi, fullPdf, cosThetaLine, distSqr, gTerm };
+}
+
+LightSamplingMISResult Integrator::lightSamplingMISEnvMap(ShadingData shadingData, Sampler* sampler, Light* sampledLight, float pmf) {
+  Colour emittedColour;
+  float pdf;
+  Vec3 wi = sampledLight->sample(shadingData, sampler, emittedColour, pdf);
+
+  float cosTheta = shadingData.sNormal.dot(wi);
+  if (cosTheta < 0) cosTheta = 0;
+
+  float gTerm = cosTheta;
+
+  float maxDist = (scene->bounds.bmax - scene->bounds.bmin).length();
+  Vec3 farPoint = shadingData.x + (wi * maxDist);
+
+  bool isVisible = scene->visible(shadingData.x, farPoint);
+
+  float resultGTerm = gTerm * isVisible;
+  float fullPdf = pmf * pdf;
+  Colour finalColor = shadingData.bsdf->evaluate(shadingData, wi) * emittedColour * resultGTerm;
+
+  return { finalColor, wi, fullPdf, 1.0f, 1.0f, gTerm };
 }
