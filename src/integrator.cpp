@@ -52,9 +52,16 @@ void Integrator::renderTile(int threadId, std::atomic<unsigned int>& tileId, MTR
   }
 }
 
-// Colour Integrator::computeDirectMIS(const ShadingData& sd, Sampler* sampler) {
+Colour Integrator::computeDirectMIS(const ShadingData& sd, Sampler* sampler) {
+  if (sd.bsdf->isPureSpecular() == true) {
+    return Colour(0.0f, 0.0f, 0.0f);
+  }
 
-// }
+  Colour result(0.0f, 0.0f, 0.0f);
+
+	lightSamplingMIS(sd, sampler, result);
+	return result;
+}
 
 void Integrator::lightSamplingMIS(ShadingData shadingData, Sampler* sampler, Colour &result) {
   float pmf;

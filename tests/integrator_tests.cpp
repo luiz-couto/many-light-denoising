@@ -870,6 +870,120 @@ TEST_CASE("lightSamplingMIS env map: analytical — weight=1 when brdfPDF=0, con
     REQUIRE(result.b == Catch::Approx(2.0f).margin(1e-4f));
 }
 
+// -----------------------------------------------------------------------
+// computeDirectMIS tests
+//
+// computeDirectMIS adds one guard over lightSamplingMIS:
+//   if (bsdf->isPureSpecular()) return BLACK
+// Otherwise it delegates to lightSamplingMIS and returns its result.
+// -----------------------------------------------------------------------
+
+// BSDF that reports itself as pure specular.
+class PureSpecularBSDF : public BSDF {
+public:
+    Vec3   sample(const ShadingData&, Sampler*, Colour& w, float& pdf) override { w = WHITE; pdf = 1.f; return Vec3(0,1,0); }
+    Colour evaluate(const ShadingData&, const Vec3&) override { return WHITE; }
+    float  PDF(const ShadingData&, const Vec3&) override { return 1.f; }
+    bool   isPureSpecular() override { return true; }
+    bool   isTwoSided() override { return true; }
+    float  mask(const ShadingData&) override { return 1.f; }
+};
+
+TEST_CASE("computeDirectMIS: returns black for pure specular BSDF regardless of lights") {
+    // Pure specular surfaces cannot receive direct light via shadow rays.
+    PureSpecularBSDF specBSDF;
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    Triangle lightTri = makeLightTriangle();
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&specBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectMIS(sd, &sampler);
+    REQUIRE(result.r == Catch::Approx(0.f).margin(1e-5f));
+    REQUIRE(result.g == Catch::Approx(0.f).margin(1e-5f));
+    REQUIRE(result.b == Catch::Approx(0.f).margin(1e-5f));
+}
+
+TEST_CASE("computeDirectMIS: returns positive result for diffuse BSDF with area light") {
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    Triangle lightTri = makeLightTriangle();
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&emissiveBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectMIS(sd, &sampler);
+    REQUIRE(result.r > 0.f);
+}
+
+TEST_CASE("computeDirectMIS: returns black when light is occluded") {
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    FixedBSDF blockerBSDF(BLACK);
+    Triangle lightTri = makeLightTriangle();
+    Triangle blocker   = makeBlockerTriangle();
+    blocker.materialIndex = 1;
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri, blocker}, {&emissiveBSDF, &blockerBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&emissiveBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectMIS(sd, &sampler);
+    REQUIRE(result.r == Catch::Approx(0.f).margin(1e-5f));
+    REQUIRE(result.g == Catch::Approx(0.f).margin(1e-5f));
+    REQUIRE(result.b == Catch::Approx(0.f).margin(1e-5f));
+}
+
+TEST_CASE("computeDirectMIS: analytical — matches lightSamplingMIS result for identical setup") {
+    // Verifies delegation is numerically exact: same scene + same sampler → same value.
+    // ZeroPDFBSDF + FixedSampler{0.5,0.25,0.5} → weight=1 → contribution=0.125 (as in lightSamplingMIS tests)
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    ZeroPDFBSDF shadingBSDF(WHITE);
+    Triangle lightTri = makeLightTriangle();
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    FixedSampler sampler{FS_SEL, FS_R1, FS_R2};
+
+    Colour result = integrator.computeDirectMIS(sd, &sampler);
+    REQUIRE(result.r == Catch::Approx(0.125f).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(0.125f).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(0.125f).margin(1e-4f));
+}
+
+TEST_CASE("computeDirectMIS: returns positive result for diffuse BSDF with env map") {
+    ZeroPDFBSDF shadingBSDF(WHITE);
+    FixedBSDF dummyBSDF(BLACK);
+    Triangle dummy = makeDistantTriangle();
+    MockEnvLight mockEnv(Vec3(0,1,0), WHITE, 0.5f);
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &mockEnv);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    FixedSampler sampler{0.5f};
+
+    Colour result = integrator.computeDirectMIS(sd, &sampler);
+    REQUIRE(result.r > 0.f);
+}
+
 TEST_CASE("lightSamplingMIS env map: analytical — PDFs stay in solid angle via cosThetaLine=distSqr=1 sentinels") {
     // FixedBSDF PDF=1.0 (solid angle). Sentinels make brdfPDF * 1/1 = 1.0 (no conversion).
     // weight = envPDF/(envPDF+brdfPDF_sa) = 0.5/(0.5+1.0) = 1/3
