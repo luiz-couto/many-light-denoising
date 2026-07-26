@@ -1,5 +1,12 @@
 #include "light.h"
 
+// Default stub. only needed for bidirectional methods.
+// Lights that don't support it inherit this and return pdf=0 to signal "not available".
+Vec3 Light::samplePositionFromLight(Sampler* sampler, float& pdf) {
+	pdf = 0.0f;
+	return Vec3(0.0f, 0.0f, 0.0f);
+}
+
 Vec3 AreaLight::sample(const ShadingData& shadingData, Sampler* sampler, Colour& emittedColour, float& pdf) {
   emittedColour = emission;
 	return triangle->sample(sampler, pdf);
@@ -41,4 +48,39 @@ Vec3 AreaLight::sampleDirectionFromLight(Sampler* sampler, float& pdf) {
   Frame frame;
   frame.fromVector(triangle->gNormal());
   return frame.toWorld(wi);
+}
+
+BackgroundColour::BackgroundColour(Colour _emission): emission(_emission) {}
+
+Vec3 BackgroundColour::sample(const ShadingData& shadingData, Sampler* sampler, Colour& reflectedColour, float& pdf) {
+  Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
+  pdf = SamplingDistributions::uniformSpherePDF(wi);
+  reflectedColour = emission;
+  return wi;
+}
+
+Colour BackgroundColour::evaluate(const Vec3& wi) {
+  return emission;
+}
+
+float BackgroundColour::PDF(const ShadingData& shadingData, const Vec3& wi) {
+  return SamplingDistributions::uniformSpherePDF(wi);
+}
+
+bool BackgroundColour::isArea() {
+  return false;
+}
+
+Vec3 BackgroundColour::normal(const ShadingData& shadingData, const Vec3& wi) {
+  return -wi;
+}
+
+float BackgroundColour::totalIntegratedPower() {
+  return emission.lum() * 4.0f * PI;
+}
+
+Vec3 BackgroundColour::sampleDirectionFromLight(Sampler* sampler, float& pdf) {
+  Vec3 wi = SamplingDistributions::uniformSampleSphere(sampler->next(), sampler->next());
+  pdf = SamplingDistributions::uniformSpherePDF(wi);
+  return wi;
 }
