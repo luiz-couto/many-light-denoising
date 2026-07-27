@@ -1,19 +1,19 @@
 #ifndef RENDERER_H
 #define RENDERER_H
 
-#include <atomic>
+#include <memory>
 #include <string>
-#include "scene.h"
-#include "film.h"
+#include "integrator.h"
+#include "config.h"
 
 class Renderer {
 public:
   Scene scene;
-  Film film;
+  Film  film;
+  std::unique_ptr<Integrator> integrator;
 
   Renderer();
-  Renderer(const std::string& scenePath);
-  void renderTile(int threadId, std::atomic<unsigned int>& tileId, MTRandom& sampler);
+  Renderer(const std::string& scenePath, Config::IntegratorType type);
   void render();
 };
 

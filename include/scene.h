@@ -41,6 +41,7 @@ public:
   Light* sampleLightWeighted(Sampler* sampler, float& pmf);
   Colour emit(Triangle* light, const ShadingData& shadingData, const Vec3& wi);
   ShadingData calculateShadingData(IntersectionData intersection, const Ray& ray);
+  float areaLightSelectionPDF(unsigned int triangleID) const;
 
 private:
   void loadCamera(GEMLoader::GEMScene& gemscene);

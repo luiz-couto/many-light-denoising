@@ -10,7 +10,7 @@ public:
 
   using Integrator::Integrator;
   Colour integrate(const Ray& ray, Sampler* sampler) override;
-  Colour pathTrace(const Ray& ray, Colour throughput, int depth, Sampler* sampler, bool isSpecularBounce);
+  Colour pathTrace(const Ray& ray, Colour throughput, int depth, float bsdfPDF, Sampler* sampler, bool isSpecularBounce);
 };
 
 #endif // PATH_TRACER_H

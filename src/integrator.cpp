@@ -5,8 +5,6 @@
 Integrator::Integrator(Scene* _scene, Film* _film): scene(_scene), film(_film) {}
 
 void Integrator::render() {
-  film->clear();
-
   int numThreads = (int)std::thread::hardware_concurrency();
   std::vector<MTRandom> samplers(numThreads);
   std::atomic<unsigned int> tileId(0);

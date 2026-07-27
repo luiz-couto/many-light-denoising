@@ -166,6 +166,22 @@ Colour Scene::emit(Triangle* light, const ShadingData& shadingData, const Vec3& 
   return materials[light->materialIndex]->emit(shadingData, wi);
 }
 
+float Scene::areaLightSelectionPDF(unsigned int triangleID) const {
+  float totalPower = 0.0f;
+  for (Light* light : lights) totalPower += light->totalIntegratedPower();
+  if (totalPower <= 0.0f) return 0.0f;
+
+  for (Light* light : lights) {
+    if (!light->isArea()) continue;
+    AreaLight* areaLight = static_cast<AreaLight*>(light);
+    if (areaLight->triangle == &triangles[triangleID]) {
+      return (areaLight->totalIntegratedPower() / totalPower) * (1.0f / areaLight->triangle->area);
+    }
+  }
+
+  return 0.0f;
+}
+
 ShadingData Scene::calculateShadingData(IntersectionData intersection, const Ray& ray) {
   ShadingData shadingData = {};
   if (intersection.t < FLT_MAX) {
