@@ -6,7 +6,7 @@
 class PathTracerIntegrator : public Integrator {
 public:
   static constexpr int MAX_DEPTH = 5;
-  static constexpr int RR_DEPTH  = 3;
+  static constexpr int RR_DEPTH  = 2;
 
   using Integrator::Integrator;
   Colour integrate(const Ray& ray, Sampler* sampler) override;

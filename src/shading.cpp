@@ -1,5 +1,7 @@
 #include "shading.h"
 
+static constexpr float MIN_ALPHA = 0.01f;
+
 bool BSDF::isLight() {
   return emission.lum() > 0;
 }
@@ -195,7 +197,7 @@ float MirrorBSDF::mask(const ShadingData& shadingData) {
 
 ConductorBSDF::ConductorBSDF(Texture* _albedo, Colour _eta, Colour _k, float roughness)
   : albedo(_albedo), eta(_eta), k(_k) {
-    alpha = roughness * roughness;
+    alpha = std::max(roughness * roughness, MIN_ALPHA);
   }
 
 // GGX NDF importance sampling. A microfacet normal wm is drawn from D(wm), then wo is
@@ -330,7 +332,7 @@ float GlassBSDF::mask(const ShadingData& shadingData) {
 
 PlasticBSDF::PlasticBSDF(Texture* _albedo, float _intIOR, float _extIOR, float roughness)
   : albedo(_albedo), intIOR(_intIOR), extIOR(_extIOR) {
-    alpha = roughness * roughness;
+    alpha = std::max(roughness * roughness, MIN_ALPHA);
   }
 
 // Mixture sampling: with probability F sample the GGX specular lobe, otherwise cosine-sample

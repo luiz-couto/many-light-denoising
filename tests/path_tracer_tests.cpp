@@ -212,6 +212,28 @@ TEST_CASE("pathTrace: depth > MAX_DEPTH returns black regardless of scene") {
     REQUIRE(result.b == Catch::Approx(0.0f).margin(1e-5f));
 }
 
+TEST_CASE("pathTrace: depth == MAX_DEPTH still processes (boundary, not killed)") {
+    // Only depth > MAX_DEPTH returns black — depth == MAX_DEPTH is still valid.
+    // Glass TIR paths can reach MAX_DEPTH=5; this verifies they are not prematurely killed.
+    // An emissive hit at depth=MAX_DEPTH with isSpecularBounce=true returns throughput*emission.
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    BackgroundColour blackBg(BLACK);
+    Triangle lightTri = makeLightTriangle();
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    PathTracerIntegrator pt(&scene, &film);
+    MTRandom sampler;
+
+    Ray ray; ray.init(Vec3(0.25f, 0.0f, 0.25f), Vec3(0.0f, 1.0f, 0.0f));
+    Colour result = pt.pathTrace(ray, WHITE, PathTracerIntegrator::MAX_DEPTH, 1.0f, &sampler, true);
+
+    REQUIRE(result.r == Catch::Approx(1.0f).margin(1e-5f));
+    REQUIRE(result.g == Catch::Approx(1.0f).margin(1e-5f));
+    REQUIRE(result.b == Catch::Approx(1.0f).margin(1e-5f));
+}
+
 TEST_CASE("pathTrace: ray miss returns throughput * background colour") {
     // Background = RED. Ray going up misses the distant triangle below.
     // Result = throughput * RED, not just RED — verifies the throughput multiply.

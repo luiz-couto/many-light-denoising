@@ -65,22 +65,29 @@ BSDF* MaterialLoader::load(GEMLoader::GEMInstance& instance) {
         inst.material.find("roughness").getValue(0.5f)
       );
     }},
-  
+
+    {"", [](GEMLoader::GEMInstance& inst, MaterialLoader& ml) -> BSDF* {
+      return new DiffuseBSDF(ml.loadTexture(inst.material.find("reflectance").getValue("")));
+    }},
+
   };
 
-  std::string type = instance.material.find("bsdf").getValue("");
+  std::string type        = instance.material.find("bsdf").getValue("");
+  std::string reflectance = instance.material.find("reflectance").getValue("");
+  std::string emission    = instance.material.find("emission").getValue("");
+
   auto it = factories.find(type);
   if (it == factories.end()) {
-    std::println("material '{}' not supported, skipping instance", type);
-    return nullptr;
+    std::println("[material] UNSUPPORTED type='{}' reflectance='{}' → diffuse fallback", type, reflectance);
+    it = factories.find("");
   }
 
   BSDF* bsdf = it->second(instance, *this);
 
-  if (instance.material.find("emission").getValue("") != "") {
-    Colour emission(0.0f, 0.0f, 0.0f);
-    instance.material.find("emission").getValuesAsVector3(emission.r, emission.g, emission.b);
-    bsdf->addLight(emission);
+  if (emission != "") {
+    Colour emissionColour(0.0f, 0.0f, 0.0f);
+    instance.material.find("emission").getValuesAsVector3(emissionColour.r, emissionColour.g, emissionColour.b);
+    bsdf->addLight(emissionColour);
   }
 
   return bsdf;

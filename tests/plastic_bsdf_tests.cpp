@@ -29,10 +29,21 @@ static constexpr float GLASS = 1.5f;
 // Constructor — roughness remap: alpha = roughness²
 // -----------------------------------------------------------------------
 
-TEST_CASE("PlasticBSDF roughness remap: roughness=0 gives alpha=0") {
+TEST_CASE("PlasticBSDF roughness remap: roughness=0 clamped to MIN_ALPHA") {
+  // roughness=0 → roughness²=0 < MIN_ALPHA=0.01 → clamped
   Texture tex = makeWhiteTex();
   PlasticBSDF bsdf(&tex, GLASS, AIR, 0.0f);
-  REQUIRE(bsdf.alpha == Catch::Approx(0.0f));
+  REQUIRE(bsdf.alpha == Catch::Approx(0.01f));
+}
+
+TEST_CASE("PlasticBSDF roughness remap: roughness² below MIN_ALPHA clamped to MIN_ALPHA") {
+  Texture tex = makeWhiteTex();
+  // roughness=0.05 → roughness²=0.0025 < MIN_ALPHA=0.01 → clamped
+  PlasticBSDF bsdf05(&tex, GLASS, AIR, 0.05f);
+  REQUIRE(bsdf05.alpha == Catch::Approx(0.01f));
+  // roughness=0.1 → roughness²=0.01 = MIN_ALPHA → boundary, not clamped further
+  PlasticBSDF bsdf10(&tex, GLASS, AIR, 0.1f);
+  REQUIRE(bsdf10.alpha == Catch::Approx(0.01f));
 }
 
 TEST_CASE("PlasticBSDF roughness remap: roughness=1 gives alpha=1") {

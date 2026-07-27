@@ -23,10 +23,24 @@ static const Colour GOLD_K(2.82f, 2.82f, 2.82f);
 // Roughness remapping — alpha = roughness² (Disney remap)
 // -----------------------------------------------------------------------
 
-TEST_CASE("ConductorBSDF roughness remap: roughness=0 gives alpha=0") {
+TEST_CASE("ConductorBSDF roughness remap: roughness=0 clamped to MIN_ALPHA") {
+  // roughness=0 → roughness²=0 < MIN_ALPHA=0.01 → clamped to prevent near-delta GGX
   Texture tex = makeWhiteTex();
   ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.0f);
-  REQUIRE(bsdf.alpha == Catch::Approx(0.0f));
+  REQUIRE(bsdf.alpha == Catch::Approx(0.01f));
+}
+
+TEST_CASE("ConductorBSDF roughness remap: roughness² below MIN_ALPHA clamped to MIN_ALPHA") {
+  Texture tex = makeWhiteTex();
+  // roughness=0.05 → roughness²=0.0025 < MIN_ALPHA=0.01 → clamped
+  ConductorBSDF bsdf05(&tex, GOLD_ETA, GOLD_K, 0.05f);
+  REQUIRE(bsdf05.alpha == Catch::Approx(0.01f));
+  // roughness=0.09 → roughness²=0.0081 < MIN_ALPHA=0.01 → clamped
+  ConductorBSDF bsdf09(&tex, GOLD_ETA, GOLD_K, 0.09f);
+  REQUIRE(bsdf09.alpha == Catch::Approx(0.01f));
+  // roughness=0.1 → roughness²=0.01 = MIN_ALPHA → not clamped (exact boundary)
+  ConductorBSDF bsdf10(&tex, GOLD_ETA, GOLD_K, 0.1f);
+  REQUIRE(bsdf10.alpha == Catch::Approx(0.01f));
 }
 
 TEST_CASE("ConductorBSDF roughness remap: roughness=1 gives alpha=1") {
@@ -441,20 +455,22 @@ TEST_CASE("ConductorBSDF chi-square: sampled distribution matches PDF") {
 // Roughness = 0 collapses to mirror
 // -----------------------------------------------------------------------
 
-TEST_CASE("ConductorBSDF roughness=0 collapses to mirror direction") {
+TEST_CASE("ConductorBSDF roughness=0 clamped: samples concentrate near mirror direction") {
+  // roughness=0 is clamped to MIN_ALPHA=0.01 — a very narrow (~0.6°) GGX lobe.
+  // Samples are NOT exactly on the mirror direction (no longer a delta), but very close.
   Texture tex = makeWhiteTex();
   ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.0f);
-  Vec3 wo = Vec3(0.5f, 0.0f, sqrtf(0.75f)); // 30° from normal
+  Vec3 wo = Vec3(0.5f, 0.0f, sqrtf(0.75f));
   ShadingData sd = makeTestSD(wo);
-  // Expected mirror direction in world space
-  Vec3 woLocal    = sd.frame.toLocal(wo);
+  Vec3 woLocal     = sd.frame.toLocal(wo);
   Vec3 mirrorWorld = sd.frame.toWorld(ShadingHelper::reflect(woLocal));
   MTRandom sampler;
   for (int i = 0; i < 20; i++) {
     Colour col; float pdf;
     Vec3 wi = bsdf.sample(sd, &sampler, col, pdf);
-    REQUIRE(wi.x == Catch::Approx(mirrorWorld.x).margin(1e-4f));
-    REQUIRE(wi.y == Catch::Approx(mirrorWorld.y).margin(1e-4f));
-    REQUIRE(wi.z == Catch::Approx(mirrorWorld.z).margin(1e-4f));
+    if (pdf > 0.0f) {
+      float dotVal = wi.x * mirrorWorld.x + wi.y * mirrorWorld.y + wi.z * mirrorWorld.z;
+      REQUIRE(dotVal > 0.99f); // within ~8° of mirror direction for alpha=0.01
+    }
   }
 }
