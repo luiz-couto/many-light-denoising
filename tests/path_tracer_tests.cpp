@@ -5,7 +5,6 @@
 #include "film.h"
 #include "geometry.h"
 #include "light.h"
-#include <cmath>
 
 static const Colour WHITE(1.0f, 1.0f, 1.0f);
 static const Colour BLACK(0.0f, 0.0f, 0.0f);

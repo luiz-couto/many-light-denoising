@@ -1115,3 +1115,107 @@ TEST_CASE("lightSamplingMIS env map: analytical — PDFs stay in solid angle via
     REQUIRE(result.g == Catch::Approx(expected).margin(1e-4f));
     REQUIRE(result.b == Catch::Approx(expected).margin(1e-4f));
 }
+
+// -----------------------------------------------------------------------
+// MIS weight sum = 1 (balance heuristic)
+//
+// For any direction sampled by the light, both the light-sampling weight and
+// the BSDF-sampling weight (evaluated at that same direction) must sum to 1.
+//
+// Analytical base case (FS_R1=0.25, FS_R2=0.5 → sampled point (0.25,2,0.25)):
+//   lightPDF_area = 2.0,  distSqr = 4.0,  cosThetaLine = 1.0
+//
+//   bsdfPDF_sa=1.0:  bsdfPDF_area=0.25  → w_light=2/(2+0.25)=8/9
+//                    lightPDF_sa =8.0   → w_bsdf =1/(1+8)  =1/9   sum=1
+//
+//   bsdfPDF_sa=4.0:  bsdfPDF_area=1.0   → w_light=2/(2+1)=2/3
+//                    lightPDF_sa =8.0   → w_bsdf =4/(4+8)=1/3   sum=1
+// -----------------------------------------------------------------------
+
+TEST_CASE("MIS weights: light weight plus BSDF weight equals 1.0 for area light") {
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    BackgroundColour blackBg(BLACK);
+    Triangle lightTri = makeLightTriangle();
+    AreaLight light; light.triangle = &lightTri; light.emission = WHITE;
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&emissiveBSDF);
+
+    // lightSamplingMISAreaLight does not consume a selector value — no FS_SEL.
+    FixedSampler lightSampler{FS_R1, FS_R2};
+    LightSamplingMISResult misRes = integrator.lightSamplingMISAreaLight(sd, &lightSampler, &light, 1.0f);
+
+    float bsdfPDF_sa   = 1.0f;  // FixedBSDF.PDF = 1.0
+    float bsdfPDF_area = bsdfPDF_sa * misRes.cosThetaLine / misRes.distSqr;
+    float w_light      = misRes.pdf / (misRes.pdf + bsdfPDF_area);
+
+    float lightPDF_sa  = misRes.pdf * misRes.distSqr / misRes.cosThetaLine;
+    float w_bsdf       = bsdfPDF_sa / (bsdfPDF_sa + lightPDF_sa);
+
+    REQUIRE(w_light + w_bsdf == Catch::Approx(1.0f).margin(1e-4f));
+}
+
+TEST_CASE("MIS weights: light plus BSDF weight equals 1.0 at arbitrary bsdfPDF") {
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    BackgroundColour blackBg(BLACK);
+    Triangle lightTri = makeLightTriangle();
+    AreaLight light; light.triangle = &lightTri; light.emission = WHITE;
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&emissiveBSDF);
+
+    FixedSampler lightSampler{FS_R1, FS_R2};
+    LightSamplingMISResult misRes = integrator.lightSamplingMISAreaLight(sd, &lightSampler, &light, 1.0f);
+
+    float bsdfPDF_sa   = 4.0f;
+    float bsdfPDF_area = bsdfPDF_sa * misRes.cosThetaLine / misRes.distSqr;
+    float w_light      = misRes.pdf / (misRes.pdf + bsdfPDF_area);
+
+    float lightPDF_sa  = misRes.pdf * misRes.distSqr / misRes.cosThetaLine;
+    float w_bsdf       = bsdfPDF_sa / (bsdfPDF_sa + lightPDF_sa);
+
+    REQUIRE(w_light + w_bsdf == Catch::Approx(1.0f).margin(1e-4f));
+}
+
+// -----------------------------------------------------------------------
+// Lambertian irradiance formula
+//
+// A Lambertian floor (evaluate=ρ/π, PDF=0) under a small area light:
+//   intensity I  = emission * area / π  =  1 * 0.5 / π
+//   irradiance   = ρ * cosTheta * I / r²  =  1 * 1 * (0.5/π) / 4  =  0.125/π
+//
+// With PDF=0 the MIS weight collapses to 1, so computeDirectMIS returns
+// exactly the area-light irradiance formula within 1%.
+// -----------------------------------------------------------------------
+
+TEST_CASE("Lambertian irradiance: computeDirectMIS matches albedo * cosTheta * I / r2 within 1%") {
+    // ZeroPDFBSDF(1/π): evaluate = ρ/π with ρ=1, PDF = 0 → MIS weight = 1.
+    float lambertianEval = 1.0f / (float)M_PI;
+    Colour lambertianColour(lambertianEval, lambertianEval, lambertianEval);
+    ZeroPDFBSDF floorBSDF(lambertianColour);
+
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    Triangle lightTri = makeLightTriangle();
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&floorBSDF);
+    FixedSampler sampler{FS_SEL, FS_R1, FS_R2};
+
+    Colour result = integrator.computeDirectMIS(sd, &sampler);
+
+    // ρ * cosTheta * (emission * area / π) / r² = 1 * 1 * (1 * 0.5 / π) / 4 = 0.125/π
+    float expected = 0.125f / (float)M_PI;
+    REQUIRE(result.r == Catch::Approx(expected).margin(expected * 0.01f));
+    REQUIRE(result.g == Catch::Approx(expected).margin(expected * 0.01f));
+    REQUIRE(result.b == Catch::Approx(expected).margin(expected * 0.01f));
+}

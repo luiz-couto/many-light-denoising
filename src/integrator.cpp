@@ -7,7 +7,12 @@ Integrator::Integrator(Scene* _scene, Film* _film): scene(_scene), film(_film) {
 
 void Integrator::render() {
   int numThreads = (int)std::thread::hardware_concurrency();
-  std::vector<MTRandom> samplers(numThreads);
+  
+  unsigned int passSeed = (unsigned int)film->SPP * (unsigned int)numThreads;
+  std::vector<MTRandom> samplers;
+  samplers.reserve(numThreads);
+  for (int i = 0; i < numThreads; i++) samplers.emplace_back(passSeed + i + 1);
+  
   std::atomic<unsigned int> tileId(0);
 
   std::vector<std::thread> threads;

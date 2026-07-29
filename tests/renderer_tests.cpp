@@ -2,6 +2,9 @@
 #include <catch2/catch_approx.hpp>
 #include "renderer.h"
 #include "geometry.h"
+#include "shading.h"
+#include "texture.h"
+#include <cmath>
 
 // -----------------------------------------------------------------------
 // Mock BSDF — emissive WHITE so that every ray hit at depth=0 returns WHITE.
@@ -170,4 +173,197 @@ TEST_CASE("Renderer render: center pixel normalized by SPP equals emission colou
   REQUIRE(perSampleR == Catch::Approx(1.0f).margin(0.01f));
   REQUIRE(perSampleG == Catch::Approx(1.0f).margin(0.01f));
   REQUIRE(perSampleB == Catch::Approx(1.0f).margin(0.01f));
+}
+
+// -----------------------------------------------------------------------
+// Convergence, self-intersection, and threading tests
+//
+// Scene: 32×32, Lambertian floor at y=0, small area light at y=2, black bg.
+// Camera at (0,3,5) looking at origin, 45° FOV.
+// The center ray hits (0,0,0) directly under the light → real MC variance.
+// -----------------------------------------------------------------------
+
+static constexpr int CONV_W = 32;
+static constexpr int CONV_H = 32;
+
+// White emissive BSDF for the area light in convergence tests.
+class ConvergenceLightBSDF : public BSDF {
+public:
+  ConvergenceLightBSDF() { emission = Colour(1.0f, 1.0f, 1.0f); }
+  Vec3   sample(const ShadingData&, Sampler*, Colour& w, float& pdf) override
+  { w = Colour(1.0f, 1.0f, 1.0f); pdf = 1.0f; return Vec3(0.0f, 1.0f, 0.0f); }
+  Colour evaluate(const ShadingData&, const Vec3&) override { return Colour(1.0f, 1.0f, 1.0f); }
+  float  PDF(const ShadingData&, const Vec3&) override { return 1.0f; }
+  bool   isPureSpecular() override { return false; }
+  bool   isTwoSided() override { return true; }
+  float  mask(const ShadingData&) override { return 1.0f; }
+};
+
+static void setupConvergenceScene(Renderer& r, DiffuseBSDF& floorBSDF, ConvergenceLightBSDF& lightBSDF, BackgroundColour& bg) {
+  Vec3 up(0.0f, 1.0f, 0.0f);
+  Vertex fv0(Vec3(-20.0f, 0.0f, -20.0f), up, 0.0f, 0.0f);
+  Vertex fv1(Vec3( 20.0f, 0.0f, -20.0f), up, 1.0f, 0.0f);
+  Vertex fv2(Vec3(-20.0f, 0.0f,  20.0f), up, 0.0f, 1.0f);
+  Triangle floorTri; floorTri.init(fv0, fv1, fv2, 0);
+
+  Vec3 down(0.0f, -1.0f, 0.0f);
+  Vertex lv0(Vec3(-1.0f, 2.0f, -1.0f), down, 0.0f, 0.0f);
+  Vertex lv1(Vec3( 1.0f, 2.0f, -1.0f), down, 1.0f, 0.0f);
+  Vertex lv2(Vec3(-1.0f, 2.0f,  1.0f), down, 0.0f, 1.0f);
+  Triangle lightTri; lightTri.init(lv0, lv1, lv2, 1);
+
+  r.scene.init({floorTri, lightTri}, {&floorBSDF, &lightBSDF}, &bg);
+  r.scene.build();
+  r.scene.width  = CONV_W;
+  r.scene.height = CONV_H;
+  r.film.init(CONV_W, CONV_H);
+
+  float aspect = (float)CONV_W / (float)CONV_H;
+  Matrix P = Matrix::perspective(0.001f, 1000.0f, aspect, 45.0f);
+  Matrix V = Matrix::lookAt(Vec3(0.0f, 3.0f, 5.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f)).invert();
+  r.scene.camera.init(P, CONV_W, CONV_H);
+  r.scene.camera.updateView(V);
+}
+
+// RMSE of (film / SPP) against reference pixel values.
+static float computeRMSE(const Film& film, const std::vector<float>& refR, const std::vector<float>& refG, const std::vector<float>& refB) {
+  float invSPP = film.SPP > 0 ? 1.0f / (float)film.SPP : 1.0f;
+  float sum = 0.0f;
+  int numPixels = (int)refR.size();
+  for (int i = 0; i < numPixels; i++) {
+    float dr = film.film[i].r * invSPP - refR[i];
+    float dg = film.film[i].g * invSPP - refG[i];
+    float db = film.film[i].b * invSPP - refB[i];
+    sum += dr * dr + dg * dg + db * db;
+  }
+  return sqrtf(sum / (float)(3 * numPixels));
+}
+
+TEST_CASE("Convergence: per-pixel RMSE decreases monotonically with SPP") {
+  // Run a reference render at high SPP, then compare RMSE at increasing SPP counts.
+  // RMSE must be strictly decreasing: RMSE(8) > RMSE(32) > RMSE(128).
+  Texture refTex; refTex.loadDefault();
+  DiffuseBSDF refFloor(&refTex);
+  ConvergenceLightBSDF refLight;
+  BackgroundColour refBg(Colour(0.0f, 0.0f, 0.0f));
+  Renderer refRenderer;
+  setupConvergenceScene(refRenderer, refFloor, refLight, refBg);
+  for (int i = 0; i < 512; i++) refRenderer.render();
+
+  int numPixels = CONV_W * CONV_H;
+  float refInvSPP = 1.0f / (float)refRenderer.film.SPP;
+  std::vector<float> refR(numPixels), refG(numPixels), refB(numPixels);
+  for (int i = 0; i < numPixels; i++) {
+    refR[i] = refRenderer.film.film[i].r * refInvSPP;
+    refG[i] = refRenderer.film.film[i].g * refInvSPP;
+    refB[i] = refRenderer.film.film[i].b * refInvSPP;
+  }
+
+  Texture testTex; testTex.loadDefault();
+  DiffuseBSDF testFloor(&testTex);
+  ConvergenceLightBSDF testLight;
+  BackgroundColour testBg(Colour(0.0f, 0.0f, 0.0f));
+  Renderer testRenderer;
+  setupConvergenceScene(testRenderer, testFloor, testLight, testBg);
+
+  int targetSPPs[] = {8, 32, 128};
+  float prevRMSE = 1e10f;
+  for (int targetSPP : targetSPPs) {
+    while (testRenderer.film.SPP < targetSPP) testRenderer.render();
+    float rmse = computeRMSE(testRenderer.film, refR, refG, refB);
+    REQUIRE(rmse < prevRMSE);
+    prevRMSE = rmse;
+  }
+}
+
+TEST_CASE("Convergence slope: log-log RMSE vs SPP slope is approximately negative one half") {
+  // O(1/sqrt(N)) convergence: quadrupling SPP halves RMSE → slope = -0.5 in log-log.
+  // Verify RMSE(32) / RMSE(8) and RMSE(128) / RMSE(32) are each in [0.3, 0.7].
+  Texture refTex; refTex.loadDefault();
+  DiffuseBSDF refFloor(&refTex);
+  ConvergenceLightBSDF refLight;
+  BackgroundColour refBg(Colour(0.0f, 0.0f, 0.0f));
+  Renderer refRenderer;
+  setupConvergenceScene(refRenderer, refFloor, refLight, refBg);
+  for (int i = 0; i < 512; i++) refRenderer.render();
+
+  int numPixels = CONV_W * CONV_H;
+  float refInvSPP = 1.0f / (float)refRenderer.film.SPP;
+  std::vector<float> refR(numPixels), refG(numPixels), refB(numPixels);
+  for (int i = 0; i < numPixels; i++) {
+    refR[i] = refRenderer.film.film[i].r * refInvSPP;
+    refG[i] = refRenderer.film.film[i].g * refInvSPP;
+    refB[i] = refRenderer.film.film[i].b * refInvSPP;
+  }
+
+  Texture testTex; testTex.loadDefault();
+  DiffuseBSDF testFloor(&testTex);
+  ConvergenceLightBSDF testLight;
+  BackgroundColour testBg(Colour(0.0f, 0.0f, 0.0f));
+  Renderer testRenderer;
+  setupConvergenceScene(testRenderer, testFloor, testLight, testBg);
+
+  while (testRenderer.film.SPP < 8)   testRenderer.render();
+  float rmse8  = computeRMSE(testRenderer.film, refR, refG, refB);
+
+  while (testRenderer.film.SPP < 32)  testRenderer.render();
+  float rmse32 = computeRMSE(testRenderer.film, refR, refG, refB);
+
+  while (testRenderer.film.SPP < 128) testRenderer.render();
+  float rmse128 = computeRMSE(testRenderer.film, refR, refG, refB);
+
+  if (rmse8 > 1e-6f && rmse32 > 1e-6f) {
+    float ratio8to32   = rmse32  / rmse8;
+    float ratio32to128 = rmse128 / rmse32;
+    REQUIRE(ratio8to32   >= 0.3f);
+    REQUIRE(ratio8to32   <= 0.7f);
+    REQUIRE(ratio32to128 >= 0.3f);
+    REQUIRE(ratio32to128 <= 0.7f);
+  }
+}
+
+TEST_CASE("No self-intersection: all pixels within expected bounds after rendering") {
+  // Self-intersection causes a bounce ray to immediately re-hit the same surface,
+  // multiplying contributions and creating firefly values far above emission level.
+  // For a scene with emission=1, all per-pixel values must stay well below 10.
+  Texture tex; tex.loadDefault();
+  DiffuseBSDF floorBSDF(&tex);
+  ConvergenceLightBSDF lightBSDF;
+  BackgroundColour bg(Colour(0.0f, 0.0f, 0.0f));
+  Renderer r;
+  setupConvergenceScene(r, floorBSDF, lightBSDF, bg);
+  for (int i = 0; i < 16; i++) r.render();
+
+  float invSPP = 1.0f / (float)r.film.SPP;
+  for (const Colour& pixel : r.film.film) {
+    REQUIRE(pixel.r * invSPP <= 10.0f);
+    REQUIRE(pixel.g * invSPP <= 10.0f);
+    REQUIRE(pixel.b * invSPP <= 10.0f);
+    REQUIRE(pixel.r >= 0.0f);
+    REQUIRE(pixel.g >= 0.0f);
+    REQUIRE(pixel.b >= 0.0f);
+  }
+}
+
+TEST_CASE("Threading: all film values are finite and non-negative after multithreaded render") {
+  // A data race during tile accumulation would produce NaN or negative values.
+  // Check every accumulated pixel is finite and non-negative.
+  Texture tex; tex.loadDefault();
+  DiffuseBSDF floorBSDF(&tex);
+  ConvergenceLightBSDF lightBSDF;
+  BackgroundColour bg(Colour(0.0f, 0.0f, 0.0f));
+  Renderer r;
+  setupConvergenceScene(r, floorBSDF, lightBSDF, bg);
+  r.render();
+  r.render();
+
+  REQUIRE(r.film.SPP == 2);
+  for (const Colour& pixel : r.film.film) {
+    REQUIRE(std::isfinite(pixel.r));
+    REQUIRE(std::isfinite(pixel.g));
+    REQUIRE(std::isfinite(pixel.b));
+    REQUIRE(pixel.r >= 0.0f);
+    REQUIRE(pixel.g >= 0.0f);
+    REQUIRE(pixel.b >= 0.0f);
+  }
 }
