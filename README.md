@@ -6,7 +6,7 @@ Making many-light rendering algorithms denoiser-friendly
 ### Dependencies
 
 ```bash
-brew install sdl2 openimagedenoise llvm
+brew install sdl2 llvm
 ```
 
 ### Build

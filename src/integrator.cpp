@@ -1,5 +1,6 @@
 #include "integrator.h"
 #include "config.h"
+#include "core.h"
 #include <thread>
 
 Integrator::Integrator(Scene* _scene, Film* _film): scene(_scene), film(_film) {}
@@ -39,9 +40,18 @@ void Integrator::renderTile(int threadId, std::atomic<unsigned int>& tileId, MTR
 
     for (int y = yStart; y < yEnd; y++) {
       for (int x = xStart; x < xEnd; x++) {
-        float px = x + sampler.next();
-        float py = y + sampler.next();
+        if (film->SPP == 0) {
+          Ray normalsRay = scene->camera.generateRay((float)x + 0.5f, (float)y + 0.5f);
+          IntersectionData hit = scene->traverse(normalsRay);
+          if (hit.t < FLT_MAX) {
+            ShadingData sd = scene->calculateShadingData(hit, normalsRay);
+            film->setNormal(x, y, Colour(sd.sNormal.x, sd.sNormal.y, sd.sNormal.z));
+            film->setAlbedo(x, y, sd.bsdf->evaluate(sd, sd.wo));
+          }
+        }
 
+        float px = (float)x + sampler.next();
+        float py = (float)y + sampler.next();
         Ray ray = scene->camera.generateRay(px, py);
         Colour col = integrate(ray, &sampler);
         film->splat(px, py, col);

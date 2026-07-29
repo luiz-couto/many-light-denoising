@@ -98,52 +98,19 @@ TEST_CASE("Film incrementSPP: increments counter") {
 // tonemap
 // -----------------------------------------------------------------------
 
-TEST_CASE("Film tonemap: SPP == 0 returns black") {
-  Film f = makeFilm();
-  f.splat(0.0f, 0.0f, Colour(1.0f, 1.0f, 1.0f));
-  // SPP still 0 — should return black regardless of accumulated value
-  unsigned char r, g, b;
-  f.tonemap(0, 0, r, g, b);
-  REQUIRE(r == 0);
-  REQUIRE(g == 0);
-  REQUIRE(b == 0);
-}
-
 TEST_CASE("Film tonemap: black pixel maps to zero output") {
   Film f = makeFilm();
-  f.splat(0.0f, 0.0f, Colour(0.0f, 0.0f, 0.0f));
-  f.incrementSPP();
+  // filmDenoised initialised to zero by init() — tonemap reads it directly
   unsigned char r, g, b;
   f.tonemap(0, 0, r, g, b);
   REQUIRE(r == 0);
   REQUIRE(g == 0);
   REQUIRE(b == 0);
-}
-
-TEST_CASE("Film tonemap: SPP averaging — two identical splats equal one splat (bug regression)") {
-  // Without the SPP divide fix, splatting twice would give 2x brightness.
-  Film f1 = makeFilm();
-  f1.splat(0.0f, 0.0f, Colour(0.5f, 0.5f, 0.5f));
-  f1.incrementSPP();
-
-  Film f2 = makeFilm();
-  f2.splat(0.0f, 0.0f, Colour(0.5f, 0.5f, 0.5f));
-  f2.splat(0.0f, 0.0f, Colour(0.5f, 0.5f, 0.5f));
-  f2.incrementSPP();
-  f2.incrementSPP();
-
-  unsigned char r1, g1, b1, r2, g2, b2;
-  f1.tonemap(0, 0, r1, g1, b1);
-  f2.tonemap(0, 0, r2, g2, b2);
-  REQUIRE(r1 == r2);
-  REQUIRE(g1 == g2);
-  REQUIRE(b1 == b2);
 }
 
 TEST_CASE("Film tonemap: higher exposure produces brighter output") {
   Film f = makeFilm();
-  f.splat(0.0f, 0.0f, Colour(0.3f, 0.3f, 0.3f));
-  f.incrementSPP();
+  f.filmDenoised[0] = Colour(0.3f, 0.3f, 0.3f);
 
   unsigned char r1, g1, b1, r2, g2, b2;
   f.tonemap(0, 0, r1, g1, b1, 1.0f);
@@ -155,8 +122,7 @@ TEST_CASE("Film tonemap: higher exposure produces brighter output") {
 
 TEST_CASE("Film tonemap: very bright input is clamped to 255") {
   Film f = makeFilm();
-  f.splat(0.0f, 0.0f, Colour(1000.0f, 1000.0f, 1000.0f));
-  f.incrementSPP();
+  f.filmDenoised[0] = Colour(1000.0f, 1000.0f, 1000.0f);
   unsigned char r, g, b;
   f.tonemap(0, 0, r, g, b);
   REQUIRE(r == 255);
@@ -175,17 +141,16 @@ TEST_CASE("Film toPixels: buffer size is width * height * 3") {
   REQUIRE(pixels.size() == 8u * 6u * 3u);
 }
 
-TEST_CASE("Film toPixels: all black when SPP == 0") {
+TEST_CASE("Film toPixels: all black before denoise") {
   Film f = makeFilm();
-  f.splat(0.0f, 0.0f, Colour(1.0f, 1.0f, 1.0f));
+  // filmDenoised is all zeros until denoise() is called
   auto pixels = f.toPixels();
   for (auto p : pixels) REQUIRE(p == 0);
 }
 
-TEST_CASE("Film toPixels: non-zero pixel after splat and incrementSPP") {
+TEST_CASE("Film toPixels: non-zero pixel after filmDenoised is set") {
   Film f = makeFilm();
-  f.splat(0.0f, 0.0f, Colour(0.5f, 0.5f, 0.5f));
-  f.incrementSPP();
+  f.filmDenoised[0] = Colour(0.5f, 0.5f, 0.5f);
   auto pixels = f.toPixels();
   REQUIRE(pixels[0] > 0);
   REQUIRE(pixels[1] > 0);

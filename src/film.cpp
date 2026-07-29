@@ -1,4 +1,5 @@
 #include "film.h"
+#include <OpenImageDenoise/oidn.hpp>
 #include <vector>
 #include <algorithm>
 
@@ -8,7 +9,11 @@ Film::Film() {}
 void Film::init(int width, int height) {
   this->width = width;
   this->height = height;
+
   film.resize(width * height);
+  filmNormals.resize(width * height);
+  filmAlbedos.resize(width * height);
+  filmDenoised.resize(width * height);
 
   clear();
 }
@@ -72,12 +77,11 @@ float Film::filmicCFunc(float value) {
   return (v1 / v2) - v3;
 }
 
-// Converts the accumulated sample at pixel (x, y) to gamma-corrected uint8_t RGB.
-// Averages by SPP, applies exposure, runs the filmic curve, applies
-// gamma (1/2.2), and clamps to [0, 255]. Returns black if SPP == 0.
+// Converts the denoised pixel at (x, y) to gamma-corrected uint8_t RGB.
+// Reads from filmDenoised (already SPP-normalized by denoise()), applies
+// exposure, runs the filmic curve, gamma (1/2.2), and clamps to [0, 255].
 void Film::tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure) {
-  Colour curr = SPP > 0 ? film[(y * width) + x] / (float)SPP : Colour(0.0f, 0.0f, 0.0f);
-  curr = curr * exposure;
+  Colour curr = filmDenoised[(y * width) + x] * exposure;
 
   float expFac = 1.0f / 2.2f;
   float W = 11.2f;
@@ -91,7 +95,36 @@ void Film::tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned ch
   float CB = filmicCFunc(curr.b);
   float bOut = powf((CB / CW), expFac);
 
-  r = std::clamp(rOut, 0.f, 1.f) * 255;
-  g = std::clamp(gOut, 0.f, 1.f) * 255;
-  b = std::clamp(bOut, 0.f, 1.f) * 255;
+  r = std::clamp(rOut, 0.0f, 1.0f) * 255;
+  g = std::clamp(gOut, 0.0f, 1.0f) * 255;
+  b = std::clamp(bOut, 0.0f, 1.0f) * 255;
+}
+
+void Film::setNormal(int x, int y, const Colour& L) {
+  if (x < 0 || x >= width || y < 0 || y >= height) return;
+  filmNormals[(y * width) + x] = L;
+}
+
+void Film::setAlbedo(int x, int y, const Colour& albedo) {
+  if (x < 0 || x >= width || y < 0 || y >= height) return;
+  filmAlbedos[(y * width) + x] = albedo;
+}
+
+void Film::denoise() {
+  std::vector<Colour> filmNormalized(width * height);
+  float invSPP = SPP > 0 ? 1.0f / (float)SPP : 1.0f;
+  for (int i = 0; i < (int)filmNormalized.size(); i++) {
+    filmNormalized[i] = film[i] * invSPP;
+  }
+
+  oidn::DeviceRef device = oidn::newDevice();
+  device.commit();
+  oidn::FilterRef filter = device.newFilter("RT");
+  filter.setImage("color", filmNormalized.data(), oidn::Format::Float3, width, height);
+  filter.setImage("albedo", filmAlbedos.data(), oidn::Format::Float3, width, height);
+  filter.setImage("normal", filmNormals.data(), oidn::Format::Float3, width, height);
+  filter.setImage("output", filmDenoised.data(), oidn::Format::Float3, width, height);
+  filter.set("hdr", true);
+  filter.commit();
+  filter.execute();
 }

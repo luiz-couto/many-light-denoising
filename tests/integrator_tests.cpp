@@ -984,6 +984,111 @@ TEST_CASE("computeDirectMIS: returns positive result for diffuse BSDF with env m
     REQUIRE(result.r > 0.f);
 }
 
+// -----------------------------------------------------------------------
+// renderTile auxiliary buffer tests (filmNormals / filmAlbedos)
+//
+// Camera at (0,0,5) looking at origin, 45° FOV, 64×64.
+// Large triangle at z=0 with normal=(0,0,1) covers the entire frustum —
+// every pixel center ray hits it regardless of jitter.
+// -----------------------------------------------------------------------
+
+static constexpr int AUX_W = 64;
+static constexpr int AUX_H = 64;
+
+class AuxWhiteBSDF : public BSDF {
+public:
+    Vec3   sample(const ShadingData&, Sampler*, Colour& w, float& pdf) override { w = WHITE; pdf = 1.0f; return Vec3(0.0f, 0.0f, 1.0f); }
+    Colour evaluate(const ShadingData&, const Vec3&) override { return WHITE; }
+    float  PDF(const ShadingData&, const Vec3&) override { return 1.0f; }
+    bool   isPureSpecular() override { return false; }
+    bool   isTwoSided() override { return true; }
+    float  mask(const ShadingData&) override { return 1.0f; }
+};
+
+static void setupAuxScene(Scene& scene, Film& film, AuxWhiteBSDF& bsdf, BackgroundColour& bg) {
+    Vertex v0(Vec3(-10.0f, -10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0.0f, 0.0f);
+    Vertex v1(Vec3( 10.0f, -10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 1.0f, 0.0f);
+    Vertex v2(Vec3(  0.0f,  10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0.5f, 1.0f);
+    Triangle tri; tri.init(v0, v1, v2, 0);
+
+    scene.init({tri}, {&bsdf}, &bg);
+    scene.build();
+    scene.width  = AUX_W;
+    scene.height = AUX_H;
+    film.init(AUX_W, AUX_H);
+
+    float aspect = (float)AUX_W / (float)AUX_H;
+    Matrix P = Matrix::perspective(0.001f, 1000.0f, aspect, 45.0f);
+    Matrix V = Matrix::lookAt(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f)).invert();
+    scene.camera.init(P, AUX_W, AUX_H);
+    scene.camera.updateView(V);
+}
+
+TEST_CASE("renderTile: filmNormals is zero at center pixel before first render") {
+    AuxWhiteBSDF bsdf; BackgroundColour bg(BLACK);
+    Scene scene; Film film;
+    setupAuxScene(scene, film, bsdf, bg);
+
+    int cx = AUX_W / 2;
+    int cy = AUX_H / 2;
+    Colour normal = film.filmNormals[cy * film.width + cx];
+    REQUIRE(normal.r == Catch::Approx(0.0f).margin(1e-5f));
+    REQUIRE(normal.g == Catch::Approx(0.0f).margin(1e-5f));
+    REQUIRE(normal.b == Catch::Approx(0.0f).margin(1e-5f));
+}
+
+TEST_CASE("renderTile: filmNormals populated at center pixel after first render") {
+    // Triangle normal = (0,0,1) → filmNormals.b ≈ 1 at center pixel.
+    AuxWhiteBSDF bsdf; BackgroundColour bg(BLACK);
+    Scene scene; Film film;
+    setupAuxScene(scene, film, bsdf, bg);
+    Integrator integrator(&scene, &film);
+
+    integrator.render();
+
+    int cx = AUX_W / 2;
+    int cy = AUX_H / 2;
+    Colour normal = film.filmNormals[cy * film.width + cx];
+    REQUIRE(normal.b > 0.5f);
+}
+
+TEST_CASE("renderTile: filmAlbedos populated at center pixel after first render") {
+    // AuxWhiteBSDF evaluate returns WHITE → filmAlbedos should be (1,1,1) at center.
+    AuxWhiteBSDF bsdf; BackgroundColour bg(BLACK);
+    Scene scene; Film film;
+    setupAuxScene(scene, film, bsdf, bg);
+    Integrator integrator(&scene, &film);
+
+    integrator.render();
+
+    int cx = AUX_W / 2;
+    int cy = AUX_H / 2;
+    Colour albedo = film.filmAlbedos[cy * film.width + cx];
+    REQUIRE(albedo.r == Catch::Approx(1.0f).margin(1e-5f));
+    REQUIRE(albedo.g == Catch::Approx(1.0f).margin(1e-5f));
+    REQUIRE(albedo.b == Catch::Approx(1.0f).margin(1e-5f));
+}
+
+TEST_CASE("renderTile: filmNormals not overwritten on subsequent renders") {
+    // SPP==0 guard: the second render() call must not touch filmNormals.
+    AuxWhiteBSDF bsdf; BackgroundColour bg(BLACK);
+    Scene scene; Film film;
+    setupAuxScene(scene, film, bsdf, bg);
+    Integrator integrator(&scene, &film);
+
+    integrator.render();
+    int cx = AUX_W / 2;
+    int cy = AUX_H / 2;
+    Colour normalAfter1 = film.filmNormals[cy * film.width + cx];
+
+    integrator.render();
+    Colour normalAfter2 = film.filmNormals[cy * film.width + cx];
+
+    REQUIRE(normalAfter2.r == Catch::Approx(normalAfter1.r).margin(1e-6f));
+    REQUIRE(normalAfter2.g == Catch::Approx(normalAfter1.g).margin(1e-6f));
+    REQUIRE(normalAfter2.b == Catch::Approx(normalAfter1.b).margin(1e-6f));
+}
+
 TEST_CASE("lightSamplingMIS env map: analytical — PDFs stay in solid angle via cosThetaLine=distSqr=1 sentinels") {
     // FixedBSDF PDF=1.0 (solid angle). Sentinels make brdfPDF * 1/1 = 1.0 (no conversion).
     // weight = envPDF/(envPDF+brdfPDF_sa) = 0.5/(0.5+1.0) = 1/3

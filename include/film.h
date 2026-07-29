@@ -7,7 +7,9 @@
 class Film {
 public:
 	std::vector<Colour> film;
-	// TODO (denoiser step): filmNormals, filmAlbedos, output
+  std::vector<Colour> filmNormals;   // first-hit shading normals
+  std::vector<Colour> filmAlbedos;   // first-hit albedo
+  std::vector<Colour> filmDenoised;  // OIDN output
 
 	unsigned int width;
 	unsigned int height;
@@ -20,7 +22,11 @@ public:
 	void incrementSPP();
 	void tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure = 1.0f);
 	float filmicCFunc(float value);
-	std::vector<uint8_t> toPixels();
+
+  void setNormal(int x, int y, const Colour& L);
+  void setAlbedo(int x, int y, const Colour& albedo);
+  void denoise();
+  std::vector<uint8_t> toPixels();
 };
 
 #endif // FILM_H
