@@ -1,4 +1,5 @@
 #include "film.h"
+#include "config.h"
 #include <OpenImageDenoise/oidn.hpp>
 #include <vector>
 #include <algorithm>
@@ -81,7 +82,9 @@ float Film::filmicCFunc(float value) {
 // Reads from filmDenoised (already SPP-normalized by denoise()), applies
 // exposure, runs the filmic curve, gamma (1/2.2), and clamps to [0, 255].
 void Film::tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure) {
-  Colour curr = filmDenoised[(y * width) + x] * exposure;
+  Colour curr = Config::USE_DENOISER
+    ? filmDenoised[(y * width) + x] * exposure
+    : (SPP > 0 ? film[(y * width) + x] / (float)SPP : Colour(0.0f, 0.0f, 0.0f)) * exposure;
 
   float expFac = 1.0f / 2.2f;
   float W = 11.2f;

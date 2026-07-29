@@ -10,7 +10,7 @@ void Engine::run() {
   bool running = true;
   while (running) {
     renderer.render();
-    renderer.film.denoise();
+    if (Config::USE_DENOISER) renderer.film.denoise();
     frameBuffer = renderer.film.toPixels();
 
     switch (window.pollEvents()) {

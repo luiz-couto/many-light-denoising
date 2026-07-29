@@ -8,4 +8,5 @@ namespace Config {
   constexpr const char* TITLE = "many-light-denoising";
   constexpr const char* OUTPUT_PATH = "output.png";
   constexpr const char* SCENE_PATH_PREFIX = "scenes";
+  inline bool USE_DENOISER = true;
 }

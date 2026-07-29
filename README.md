@@ -31,6 +31,12 @@ Scene folders live under `scenes/`. Pass just the folder name, not the full path
 
 Press `S` to save the current frame as `output.png`.
 
+Pass `--no-denoise` to disable OIDN denoising and display the raw path-traced instead:
+
+```bash
+./build/renderer kitchen --no-denoise
+```
+
 ### VS Code
 
 Install the [clangd extension](https://marketplace.visualstudio.com/items?itemName=llvm-vs-code-extensions.vscode-clangd) for correct C++23 IntelliSense. When prompted, disable IntelliSense from the Microsoft C/C++ extension.
