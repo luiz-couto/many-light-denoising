@@ -6,6 +6,9 @@
 Integrator::Integrator(Scene* _scene, Film* _film): scene(_scene), film(_film) {}
 
 void Integrator::render() {
+  MTRandom prepareSampler(film->SPP + 1);
+  prepare(&prepareSampler);
+
   int numThreads = (int)std::thread::hardware_concurrency();
   
   unsigned int passSeed = (unsigned int)film->SPP * (unsigned int)numThreads;

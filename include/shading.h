@@ -82,6 +82,7 @@ public:
 	virtual bool isPureSpecular() = 0;
 	virtual bool isTwoSided() = 0;
 	virtual float mask(const ShadingData& shadingData) = 0;
+  virtual Colour diffuseAlbedo(const ShadingData& shadingData);
 
 	bool isLight();
 	void addLight(Colour _emission);
@@ -101,6 +102,7 @@ public:
   bool isPureSpecular() override;
   bool isTwoSided() override;
   float mask(const ShadingData& shadingData) override;
+  Colour diffuseAlbedo(const ShadingData& shadingData) override;
 };
 
 class MirrorBSDF : public BSDF {
@@ -171,6 +173,7 @@ public:
   bool isPureSpecular() override;
   bool isTwoSided() override;
   float mask(const ShadingData& shadingData) override;
+  Colour diffuseAlbedo(const ShadingData& shadingData) override;
 };
 
 #endif // SHADING_H

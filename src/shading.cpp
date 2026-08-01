@@ -14,6 +14,10 @@ Colour BSDF::emit(const ShadingData& shadingData, const Vec3& wi) {
   return emission;
 }
 
+Colour BSDF::diffuseAlbedo(const ShadingData& shadingData) {
+  return Colour(0.0f, 0.0f, 0.0f); // default: no diffuse component
+}
+
 float ShadingHelper::getCosThetaT(float cosTheta, float n, bool &totalInternalReflection) {
   totalInternalReflection = false;
   float term = 1 - ((1 - (cosTheta * cosTheta)) / (n * n));
@@ -155,6 +159,10 @@ bool DiffuseBSDF::isTwoSided() {
 
 float DiffuseBSDF::mask(const ShadingData& shadingData) {
   return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+}
+
+Colour DiffuseBSDF::diffuseAlbedo(const ShadingData& shadingData) {
+  return albedo->sample(shadingData.tu, shadingData.tv);
 }
 
 MirrorBSDF::MirrorBSDF(Texture* _albedo, Colour _eta, Colour _k)
@@ -421,4 +429,8 @@ bool PlasticBSDF::isTwoSided() {
 
 float PlasticBSDF::mask(const ShadingData& shadingData) {
   return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+}
+
+Colour PlasticBSDF::diffuseAlbedo(const ShadingData& shadingData) {
+  return albedo->sample(shadingData.tu, shadingData.tv);
 }
