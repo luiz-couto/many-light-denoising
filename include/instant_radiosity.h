@@ -19,6 +19,7 @@ public:
 
   // sum over vpls
   Colour gatherVPLs(const ShadingData& shadingData);
+  Colour unshadowedVPLContribution(const ShadingData& shadingData, const VPL& vpl);
 
   // sample light + position + direction; returns initial photon flux, fills the emitted ray
   Colour emitPhoton(Sampler* sampler, Ray& emittedRay);

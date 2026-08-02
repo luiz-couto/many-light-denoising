@@ -75,33 +75,40 @@ void InstantRadiosityIntegrator::depositVPL(const ShadingData& shadingData, cons
 
   VPL vpl;
   vpl.position = shadingData.x;
-  vpl.normal   = shadingData.sNormal;
+  vpl.normal = shadingData.sNormal;
   vpl.footprintRadius = 0.0f;
   vpl.radiance = radiance;
   vpls.push_back(vpl);
+}
+
+Colour InstantRadiosityIntegrator::unshadowedVPLContribution(const ShadingData& shadingData, const VPL& vpl) {
+  Colour black = Colour(0.0f, 0.0f, 0.0f);
+ 
+  Vec3 toVPL = vpl.position - shadingData.x;
+  float distSqr = toVPL.lengthSq();
+  if (distSqr <= 1e-12f) return black; // VPL at x itself, avoid NaN from normalize
+
+  Vec3 wi = toVPL.normalize();
+  float cosX = std::max(0.0f, shadingData.sNormal.dot(wi));
+  float cosVPL = std::max(0.0f, vpl.normal.dot(-wi));
+  if (cosX <= 0.0f || cosVPL <= 0.0f) return black;  // geometrically dark, no ray needed
+
+  float distance = 1.0f / distSqr;
+  float g = std::min((cosX * cosVPL) * distance, Config::IR_G_CLAMP);
+  Colour bsdf = shadingData.bsdf->evaluate(shadingData, wi);
+
+  Colour total = bsdf * g * vpl.radiance;
+  return total;
 }
 
 Colour InstantRadiosityIntegrator::gatherVPLs(const ShadingData& shadingData) {
   Colour indirectLight = Colour(0.0f, 0.0f, 0.0f);
 
   for (const VPL& vpl : vpls) {
-    Vec3 toVPL = vpl.position - shadingData.x;
-    float distSqr = toVPL.lengthSq();
-    if (distSqr <= 1e-12f) continue; // VPL at x itself, avoid NaN from normalize
-
-    Vec3 wi = toVPL.normalize();
-    float cosX = std::max(0.0f, shadingData.sNormal.dot(wi));
-    float cosVPL = std::max(0.0f, vpl.normal.dot(-wi));
-    if (cosX <= 0.0f || cosVPL <= 0.0f) continue;  // geometrically dark, no ray needed
-
+    Colour contribution = unshadowedVPLContribution(shadingData, vpl);
+    if (contribution.lum() <= 0.0f) continue;
     if (!scene->visible(shadingData.x, vpl.position)) continue;
-
-    float distance = 1.0f / distSqr;
-    float g = std::min((cosX * cosVPL) * distance, Config::IR_G_CLAMP);
-    Colour bsdf = shadingData.bsdf->evaluate(shadingData, wi);
-
-    Colour total = bsdf * g * vpl.radiance;
-    indirectLight = indirectLight + total;
+    indirectLight = indirectLight + contribution;
   }
 
   return indirectLight;

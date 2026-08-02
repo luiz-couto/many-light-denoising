@@ -1,6 +1,7 @@
 #include "renderer.h"
 #include "path_tracer.h"
 #include "instant_radiosity.h"
+#include "restir_instant_radiosity.h"
 #include <functional>
 #include <unordered_map>
 
@@ -17,6 +18,8 @@ Renderer::Renderer(const std::string& scenePath, Config::IntegratorType type) {
       [](Scene* s, Film* f) { return std::make_unique<PathTracerIntegrator>(s, f); } },
     { Config::IntegratorType::InstantRadiosity,
       [](Scene* s, Film* f) { return std::make_unique<InstantRadiosityIntegrator>(s, f); } },
+    { Config::IntegratorType::InstantRadiosityReSTIR,
+      [](Scene* s, Film* f) { return std::make_unique<ReSTIRInstantRadiosityIntegrator>(s, f); } },
   };
 
   integrator = factories.at(type)(&scene, &film);
