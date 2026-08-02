@@ -36,7 +36,7 @@ FetchContent_Declare(Catch2
   GIT_TAG v3.5.0)
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(renderer src/main.cpp src/engine.cpp src/window.cpp src/core.cpp src/ray.cpp src/geometry.cpp src/sampling.cpp src/bvh.cpp src/camera.cpp src/scene.cpp src/shading.cpp src/film.cpp src/renderer.cpp src/integrator.cpp src/path_tracer.cpp src/instant_radiosity.cpp src/texture.cpp src/light.cpp src/material_loader.cpp)
+add_executable(renderer src/main.cpp src/engine.cpp src/window.cpp src/core.cpp src/ray.cpp src/geometry.cpp src/sampling.cpp src/bvh.cpp src/camera.cpp src/scene.cpp src/shading.cpp src/film.cpp src/renderer.cpp src/integrator.cpp src/path_tracer.cpp src/instant_radiosity.cpp src/reservoir.cpp src/texture.cpp src/light.cpp src/material_loader.cpp)
 target_include_directories(renderer PRIVATE include)
 target_link_libraries(renderer PRIVATE SDL2::SDL2 OpenImageDenoise)
 
@@ -50,6 +50,6 @@ if(WIN32)
 endif()
 
 # Tests
-add_executable(tests tests/vec3_tests.cpp tests/colour_tests.cpp tests/matrix_tests.cpp tests/frame_tests.cpp tests/vec3_utils_tests.cpp tests/spherical_tests.cpp tests/ray_tests.cpp tests/triangle_tests.cpp tests/sampling_tests.cpp tests/aabb_tests.cpp tests/bvh_tests.cpp tests/camera_tests.cpp tests/scene_tests.cpp tests/film_tests.cpp tests/renderer_tests.cpp tests/integrator_tests.cpp tests/texture_tests.cpp tests/shading_helper_tests.cpp tests/diffuse_bsdf_tests.cpp tests/mirror_bsdf_tests.cpp tests/conductor_bsdf_tests.cpp tests/glass_bsdf_tests.cpp tests/plastic_bsdf_tests.cpp tests/area_light_tests.cpp tests/background_colour_tests.cpp tests/environment_map_tests.cpp tests/path_tracer_tests.cpp tests/instant_radiosity_tests.cpp src/core.cpp src/ray.cpp src/geometry.cpp src/sampling.cpp src/bvh.cpp src/camera.cpp src/scene.cpp src/shading.cpp src/film.cpp src/renderer.cpp src/integrator.cpp src/path_tracer.cpp src/instant_radiosity.cpp src/texture.cpp src/light.cpp src/material_loader.cpp)
+add_executable(tests tests/vec3_tests.cpp tests/colour_tests.cpp tests/matrix_tests.cpp tests/frame_tests.cpp tests/vec3_utils_tests.cpp tests/spherical_tests.cpp tests/ray_tests.cpp tests/triangle_tests.cpp tests/sampling_tests.cpp tests/aabb_tests.cpp tests/bvh_tests.cpp tests/camera_tests.cpp tests/scene_tests.cpp tests/film_tests.cpp tests/renderer_tests.cpp tests/integrator_tests.cpp tests/texture_tests.cpp tests/shading_helper_tests.cpp tests/diffuse_bsdf_tests.cpp tests/mirror_bsdf_tests.cpp tests/conductor_bsdf_tests.cpp tests/glass_bsdf_tests.cpp tests/plastic_bsdf_tests.cpp tests/area_light_tests.cpp tests/background_colour_tests.cpp tests/environment_map_tests.cpp tests/path_tracer_tests.cpp tests/instant_radiosity_tests.cpp tests/reservoir_tests.cpp src/core.cpp src/ray.cpp src/geometry.cpp src/sampling.cpp src/bvh.cpp src/camera.cpp src/scene.cpp src/shading.cpp src/film.cpp src/renderer.cpp src/integrator.cpp src/path_tracer.cpp src/instant_radiosity.cpp src/reservoir.cpp src/texture.cpp src/light.cpp src/material_loader.cpp)
 target_include_directories(tests PRIVATE include)
 target_link_libraries(tests PRIVATE Catch2::Catch2WithMain OpenImageDenoise)
