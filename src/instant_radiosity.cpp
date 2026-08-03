@@ -37,7 +37,7 @@ void InstantRadiosityIntegrator::prepare(Sampler* sampler) {
         flux = flux / q;
       }
 
-      ray.init(shadingData.x + (newDirection * RAY_EPSILON), newDirection);
+      ray.init(shadingData.x + (newDirection * RAY_OFFSET_EPSILON), newDirection);
     }
   }
 }
@@ -56,7 +56,7 @@ Colour InstantRadiosityIntegrator::emitPhoton(Sampler* sampler, Ray& emittedRay)
 
   if (sampledLight->isArea()) {
     Colour photonFlux = sampledLight->evaluate(-directionFromLight) * PI / (pmf * posLightPdf);
-    emittedRay.init(positionFromLight + (directionFromLight * RAY_EPSILON), directionFromLight);
+    emittedRay.init(positionFromLight + (directionFromLight * RAY_OFFSET_EPSILON), directionFromLight);
     return photonFlux;
   }
 
@@ -65,7 +65,7 @@ Colour InstantRadiosityIntegrator::emitPhoton(Sampler* sampler, Ray& emittedRay)
   float cosEmit = std::max(0.0f, -directionFromLight.dot(inwardNormal));
   
   Colour photonFlux = sampledLight->evaluate(directionFromLight) * cosEmit / (pmf * posLightPdf * dirLightPdf);
-  emittedRay.init(positionFromLight + (-directionFromLight * RAY_EPSILON), -directionFromLight);
+  emittedRay.init(positionFromLight + (-directionFromLight * RAY_OFFSET_EPSILON), -directionFromLight);
   
   return photonFlux;
 }
@@ -141,7 +141,7 @@ Colour InstantRadiosityIntegrator::integrate(const Ray& ray, Sampler* sampler) {
       if (pdf <= 0.0f || weight.lum() <= 0.0f) return Colour(0.0f, 0.0f, 0.0f);
 
       throughput = throughput * weight;
-      currentRay.init(shadingData.x + (newDirection * RAY_EPSILON), newDirection);
+      currentRay.init(shadingData.x + (newDirection * RAY_OFFSET_EPSILON), newDirection);
       continue;
     }
 

@@ -114,7 +114,7 @@ void ReSTIRInstantRadiosityIntegrator::tracePrimary(int x, int y, Sampler* sampl
       Vec3 newDirection = shadingData.bsdf->sample(shadingData, sampler, weight, pdf);
       if (pdf <= 0.0f || weight.lum() <= 0.0f) return;
       throughput = throughput * weight;
-      currentRay.init(shadingData.x + (newDirection * RAY_EPSILON), newDirection);
+      currentRay.init(shadingData.x + (newDirection * RAY_OFFSET_EPSILON), newDirection);
       continue;
     }
 

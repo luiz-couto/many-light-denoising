@@ -393,6 +393,44 @@ TEST_CASE("Scene getSceneCentre/getSceneRadius: multiple triangles extend the bo
   REQUIRE(scene.getSceneRadius() == Catch::Approx(2.0f * sqrtf(3.0f)).epsilon(1e-4f));
 }
 
+// -----------------------------------------------------------------------
+// Ray offset epsilon — regression for the dark-triangle acne
+// -----------------------------------------------------------------------
+
+TEST_CASE("Scene visible: no self-shadowing on a tilted surface far from the origin") {
+  // At coordinates ~70 the float ULP is ~7.6e-6. A surface offset below that
+  // (the old RAY_EPSILON = 1e-6) nudges shadow-ray origins by LESS than the
+  // hit position's own rounding noise, so rays start inside the surface and
+  // re-hit it — whole triangles self-shadow ("dark triangle" acne, the
+  // MaterialsScene mystery). RAY_OFFSET_EPSILON = 1e-3 must clear the surface
+  // for every interior point at a 30-degree grazing shadow direction.
+  Triangle tri = makeTri(Vec3(66.0f, 66.0f, 0.0f), Vec3(74.0f, 66.0f, 0.0f),
+                         Vec3(70.0f, 74.0f, 8.0f));   // 45-degree tilted, centred ~(70, 69)
+  MockBSDF* bsdf = new MockBSDF(true);
+  MockLight* bg  = new MockLight(0.0f);
+  Scene scene;
+  scene.init({tri}, {bsdf}, bg);
+  scene.build();
+
+  // Direction 30 degrees above the plane (normal (0,-1,1)/sqrt(2), tangent x):
+  Vec3 planeNormal = Vec3(0.0f, -1.0f, 1.0f).normalize();
+  Vec3 shadowDirection = (Vec3(1.0f, 0.0f, 0.0f) * 0.866f + planeNormal * 0.5f).normalize();
+
+  const Vec3 v0(66.0f, 66.0f, 0.0f), v1(74.0f, 66.0f, 0.0f), v2(70.0f, 74.0f, 8.0f);
+  int blocked = 0;
+  for (int a = 1; a < 14; a++) {
+    for (int b = 1; b < 14 - a; b++) {
+      float w1 = (float)a / 15.0f;
+      float w2 = (float)b / 15.0f;
+      float w0 = 1.0f - w1 - w2;
+      Vec3 surfacePoint = v0 * w0 + v1 * w1 + v2 * w2;
+      Vec3 farPoint = surfacePoint + shadowDirection * 50.0f;   // nothing out there
+      if (!scene.visible(surfacePoint, farPoint)) blocked++;
+    }
+  }
+  REQUIRE(blocked == 0);   // the only possible occluder is the surface itself
+}
+
 TEST_CASE("Scene getSceneCentre/getSceneRadius: consistent with the EnvironmentMap construction formula") {
   // loadBackground constructs the env map with centre = (bmax+bmin)*0.5 and
   // radius = |bmax - centre| — these accessors must return the SAME values,

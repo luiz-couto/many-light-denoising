@@ -106,11 +106,13 @@ TEST_CASE("InstantRadiosity emitPhoton: area light flux equals emission * PI * a
     REQUIRE(flux.g == Catch::Approx(expectedFlux.g).epsilon(1e-3f));
     REQUIRE(flux.b == Catch::Approx(expectedFlux.b).epsilon(1e-3f));
 
-    // Origin on the light's plane (z = 0), inside the triangle bounds.
-    REQUIRE(std::abs(emittedRay.o.z) < 1e-3f);
-    REQUIRE(emittedRay.o.x >= -1e-4f);
-    REQUIRE(emittedRay.o.y >= -1e-4f);
-    REQUIRE(emittedRay.o.x + emittedRay.o.y <= 2.0f + 1e-3f);
+    // Origin on the light's plane (z = 0), inside the triangle bounds —
+    // tolerances cover the RAY_OFFSET_EPSILON (1e-3) nudge along the
+    // emission direction.
+    REQUIRE(std::abs(emittedRay.o.z) <= 1.1e-3f);
+    REQUIRE(emittedRay.o.x >= -1.1e-3f);
+    REQUIRE(emittedRay.o.y >= -1.1e-3f);
+    REQUIRE(emittedRay.o.x + emittedRay.o.y <= 2.0f + 2.2e-3f);
 
     // Travel direction: unit length, leaving the light's front face (+z).
     REQUIRE(emittedRay.dir.length() == Catch::Approx(1.0f).margin(1e-4f));
@@ -237,10 +239,14 @@ TEST_CASE("InstantRadiosity emitPhoton: environment map — sphere origin, inwar
     Ray emittedRay;
     Colour flux = integrator.emitPhoton(&sampler, emittedRay);
 
-    // Origin on the bounding sphere.
-    REQUIRE((emittedRay.o - sceneCentre).length() == Catch::Approx(sceneRadius).epsilon(1e-3f));
+    // The ray origin is the sphere point nudged RAY_OFFSET_EPSILON along the
+    // travel direction — undo the nudge before reconstructing the geometry.
+    // (Grazing photons have cosEmit ~0.005, where even a 1e-3 origin shift
+    // is a multi-percent RELATIVE error in the cosine.)
+    Vec3 spherePoint = emittedRay.o - emittedRay.dir * RAY_OFFSET_EPSILON;
+    REQUIRE((spherePoint - sceneCentre).length() == Catch::Approx(sceneRadius).epsilon(1e-4f));
 
-    Vec3 inwardNormal = (sceneCentre - emittedRay.o).normalize();
+    Vec3 inwardNormal = (sceneCentre - spherePoint).normalize();
     float cosEmit = dot(emittedRay.dir, inwardNormal);
 
     REQUIRE(std::isfinite(flux.r));

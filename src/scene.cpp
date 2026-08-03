@@ -156,9 +156,9 @@ Light* Scene::sampleLightWeighted(Sampler* sampler, float& pmf) {
 bool Scene::visible(const Vec3& p1, const Vec3& p2) {
   Ray ray;
   Vec3 dir = p2 - p1;
-  float maxT = dir.length() - (2.0f * RAY_EPSILON);
+  float maxT = dir.length() - (2.0f * RAY_OFFSET_EPSILON);
   dir = dir.normalize();
-  ray.init(p1 + (dir * RAY_EPSILON), dir);
+  ray.init(p1 + (dir * RAY_OFFSET_EPSILON), dir);
   return bvh.traverseVisible(ray, maxT);
 }
 

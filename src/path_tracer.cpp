@@ -67,7 +67,7 @@ Colour PathTracerIntegrator::pathTrace(const Ray& ray, Colour throughput, int de
 
   // Recursive
   Ray newRay;
-  newRay.init(shadingData.x + (worldDirection * RAY_EPSILON), worldDirection);
+  newRay.init(shadingData.x + (worldDirection * RAY_OFFSET_EPSILON), worldDirection);
   Colour indirectLight = pathTrace(newRay, newThroughput, depth + 1, pdf, sampler, shadingData.bsdf->isPureSpecular());
 
   return indirectLight + (directLight * throughput);
