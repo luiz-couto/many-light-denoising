@@ -279,7 +279,7 @@ TEST_CASE("ReSTIR pHat: analytical value and consistency with unshadowedVPLContr
   float target = integrator.pHat(shadingData, vpl);
 
   REQUIRE(target == Catch::Approx(0.25f / PI).epsilon(1e-3f));
-  REQUIRE(target == Catch::Approx(integrator.unshadowedVPLContribution(shadingData, vpl).lum()));
+  REQUIRE(target == Catch::Approx(integrator.unshadowedVPLContribution(shadingData, vpl, vpl.position).lum()));
 }
 
 TEST_CASE("ReSTIR pHat: ignores visibility — occluded VPL still scores (the hoist contract)") {
@@ -318,7 +318,8 @@ TEST_CASE("ReSTIR pHat: ignores visibility — occluded VPL still scores (the ho
   float target = integrator.pHat(shadingData, vpl);
   REQUIRE(target == Catch::Approx(0.25f / PI).epsilon(1e-3f));   // sees THROUGH the occluder
 
-  Colour gathered = integrator.gatherVPLs(shadingData);
+  MTRandom gatherSampler(42);
+  Colour gathered = integrator.gatherVPLs(shadingData, &gatherSampler);
   REQUIRE(gathered.r == Catch::Approx(0.0f).margin(1e-6f));      // gather does not
 }
 
@@ -733,7 +734,8 @@ TEST_CASE("ReSTIR shadePixel: winner adds exactly contribution * W on top of dir
   FixedSampler samplerB{0.1f, 0.4f, 0.4f};
   Colour withWinner = integrator.shadePixel(0, &samplerB);
 
-  Colour expected = integrator.unshadowedVPLContribution(shadingData, integrator.vpls[0])
+  Colour expected = integrator.unshadowedVPLContribution(shadingData, integrator.vpls[0],
+                                                         integrator.vpls[0].position)
                     * 2.5f * 0.5f;                                // * W * throughput
   Colour difference = withWinner - withoutWinner;
   REQUIRE(difference.r == Catch::Approx(expected.r).epsilon(1e-3f));

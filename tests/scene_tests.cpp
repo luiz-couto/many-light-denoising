@@ -346,3 +346,68 @@ TEST_CASE("Scene calculateShadingData: one-sided material does not flip normal")
   ShadingData sd = scene.calculateShadingData(inter, ray);
   REQUIRE(sd.gNormal.z == Catch::Approx(1.0f).margin(1e-4f));
 }
+
+// -----------------------------------------------------------------------
+// getSceneCentre / getSceneRadius
+// -----------------------------------------------------------------------
+
+TEST_CASE("Scene getSceneCentre: midpoint of the bounds AABB") {
+  // Triangle spans bounds min (0,0,0), max (2,3,0) -> centre (1, 1.5, 0).
+  Triangle tri = makeTri(Vec3(0,0,0), Vec3(2,0,0), Vec3(0,3,0));
+  MockBSDF* bsdf = new MockBSDF();
+  MockLight* bg  = new MockLight(0.0f);
+  Scene scene;
+  scene.init({tri}, {bsdf}, bg);
+
+  Vec3 centre = scene.getSceneCentre();
+  REQUIRE(centre.x == Catch::Approx(1.0f));
+  REQUIRE(centre.y == Catch::Approx(1.5f));
+  REQUIRE(centre.z == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Scene getSceneRadius: distance from centre to the bounds maximum") {
+  // Same bounds as above: radius = |(2,3,0) - (1,1.5,0)| = sqrt(1 + 2.25) = sqrt(3.25).
+  Triangle tri = makeTri(Vec3(0,0,0), Vec3(2,0,0), Vec3(0,3,0));
+  MockBSDF* bsdf = new MockBSDF();
+  MockLight* bg  = new MockLight(0.0f);
+  Scene scene;
+  scene.init({tri}, {bsdf}, bg);
+
+  REQUIRE(scene.getSceneRadius() == Catch::Approx(sqrtf(3.25f)).epsilon(1e-4f));
+}
+
+TEST_CASE("Scene getSceneCentre/getSceneRadius: multiple triangles extend the bounds in 3D") {
+  // Bounds: min (-2,-1,-4), max (2,3,0) -> centre (0,1,-2),
+  // radius = |(2,3,0) - (0,1,-2)| = |(2,2,2)| = 2*sqrt(3).
+  Triangle triA = makeTri(Vec3(0,0,0), Vec3(2,0,0), Vec3(0,3,0));
+  Triangle triB = makeTri(Vec3(-2,-1,-4), Vec3(-1,-1,-4), Vec3(-2,0,-4));
+  MockBSDF* bsdf = new MockBSDF();
+  MockLight* bg  = new MockLight(0.0f);
+  Scene scene;
+  scene.init({triA, triB}, {bsdf}, bg);
+
+  Vec3 centre = scene.getSceneCentre();
+  REQUIRE(centre.x == Catch::Approx(0.0f));
+  REQUIRE(centre.y == Catch::Approx(1.0f));
+  REQUIRE(centre.z == Catch::Approx(-2.0f));
+  REQUIRE(scene.getSceneRadius() == Catch::Approx(2.0f * sqrtf(3.0f)).epsilon(1e-4f));
+}
+
+TEST_CASE("Scene getSceneCentre/getSceneRadius: consistent with the EnvironmentMap construction formula") {
+  // loadBackground constructs the env map with centre = (bmax+bmin)*0.5 and
+  // radius = |bmax - centre| — these accessors must return the SAME values,
+  // since emitPhoton's env branch relies on them agreeing with the sphere the
+  // environment light was built around.
+  Triangle tri = makeTri(Vec3(-1,-2,-3), Vec3(4,0,0), Vec3(0,5,6));
+  MockBSDF* bsdf = new MockBSDF();
+  MockLight* bg  = new MockLight(0.0f);
+  Scene scene;
+  scene.init({tri}, {bsdf}, bg);
+
+  Vec3 expectedCentre = (scene.bounds.bmax + scene.bounds.bmin) * 0.5f;
+  float expectedRadius = (scene.bounds.bmax - expectedCentre).length();
+  REQUIRE(scene.getSceneCentre().x == Catch::Approx(expectedCentre.x));
+  REQUIRE(scene.getSceneCentre().y == Catch::Approx(expectedCentre.y));
+  REQUIRE(scene.getSceneCentre().z == Catch::Approx(expectedCentre.z));
+  REQUIRE(scene.getSceneRadius() == Catch::Approx(expectedRadius));
+}

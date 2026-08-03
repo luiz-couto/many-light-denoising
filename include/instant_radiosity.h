@@ -18,14 +18,17 @@ public:
   Colour integrate(const Ray& ray, Sampler* sampler) override;
 
   // sum over vpls
-  Colour gatherVPLs(const ShadingData& shadingData);
-  Colour unshadowedVPLContribution(const ShadingData& shadingData, const VPL& vpl);
+  Colour gatherVPLs(const ShadingData& shadingData, Sampler* sampler);
+  Colour unshadowedVPLContribution(const ShadingData& shadingData, const VPL& vpl, const Vec3& targetPoint);
 
   // sample light + position + direction; returns initial photon flux, fills the emitted ray
   Colour emitPhoton(Sampler* sampler, Ray& emittedRay);
 
   // deposit VPL and gets its radiance
   void depositVPL(const ShadingData& shadingData, const Colour& flux, const Colour& albedoAtHit);
+
+  // Uniform point on the VPL's footprint disk, in its tangent plane
+  Vec3 sampleFootprintPoint(const VPL& vpl, Sampler* sampler);
 };
 
 #endif // INSTANT_RADIOSITY_H

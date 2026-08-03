@@ -2,6 +2,7 @@
 #define SCENE_H
 
 #include "GEMLoader.h"
+#include "core.h"
 #include "material_loader.h"
 #include "geometry.h"
 #include "bvh.h"
@@ -42,6 +43,8 @@ public:
   Colour emit(Triangle* light, const ShadingData& shadingData, const Vec3& wi);
   ShadingData calculateShadingData(IntersectionData intersection, const Ray& ray);
   float areaLightSelectionPDF(unsigned int triangleID) const;
+  Vec3 getSceneCentre() const;
+  float getSceneRadius() const;
 
 private:
   void loadCamera(GEMLoader::GEMScene& gemscene);

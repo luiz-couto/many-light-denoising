@@ -271,7 +271,17 @@ TEST_CASE("InstantRadiosity depositVPL: radiance = flux * albedo / PI, fields co
   Texture albedoTex; fillTexture(albedoTex, 1, 1, albedoColour);
   DiffuseBSDF floorMaterial(&albedoTex);
 
-  Scene scene; // not used by depositVPL, but the integrator needs one
+  // depositVPL reads scene->getSceneRadius() for the footprint, so the scene
+  // needs real bounds (a bare Scene has an empty/inverted AABB).
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  DiffuseBSDF sceneMaterial(&white);
+  Triangle floorTri = makeTri(Vec3(-10.0f, -10.0f, 0.0f), Vec3(10.0f, -10.0f, 0.0f),
+                              Vec3(0.0f, 10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+  Scene scene;
+  scene.init({floorTri}, {&sceneMaterial}, &background);
+  scene.build();
+
   Film film;
   film.init(8, 8);
   InstantRadiosityIntegrator integrator(&scene, &film);
@@ -295,7 +305,56 @@ TEST_CASE("InstantRadiosity depositVPL: radiance = flux * albedo / PI, fields co
   REQUIRE(vpl.radiance.r == Catch::Approx(flux.r * albedoColour.r / PI).epsilon(1e-4f));
   REQUIRE(vpl.radiance.g == Catch::Approx(flux.g * albedoColour.g / PI).epsilon(1e-4f));
   REQUIRE(vpl.radiance.b == Catch::Approx(flux.b * albedoColour.b / PI).epsilon(1e-4f));
+
+  // Stage 4: footprint set at deposit from the scene scale.
+  REQUIRE(vpl.footprintRadius ==
+          Catch::Approx(Config::IR_FOOTPRINT_FRACTION * scene.getSceneRadius()).epsilon(1e-4f));
+  REQUIRE(vpl.footprintRadius > 0.0f);
 }
+
+// -----------------------------------------------------------------------
+// Stage 4 pieces: sampleFootprintPoint + contribution toward a target point
+// -----------------------------------------------------------------------
+
+TEST_CASE("InstantRadiosity sampleFootprintPoint: on the disk — tangent plane, within radius") {
+  Scene scene; // not touched by sampleFootprintPoint
+  Film film; film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  VPL vpl;
+  vpl.position = Vec3(1.0f, 2.0f, 3.0f);
+  vpl.normal   = Vec3(0.0f, 0.0f, -1.0f);
+  vpl.footprintRadius = 0.5f;
+
+  MTRandom sampler(42);
+  float maxOffset = 0.0f;
+  for (int i = 0; i < 2000; i++) {
+    Vec3 point = integrator.sampleFootprintPoint(vpl, &sampler);
+    Vec3 offset = point - vpl.position;
+    REQUIRE(std::abs(offset.dot(vpl.normal)) < 1e-4f);          // in the tangent plane
+    REQUIRE(offset.length() <= vpl.footprintRadius + 1e-4f);    // within the disk
+    maxOffset = std::max(maxOffset, offset.length());
+  }
+  // Uniform-over-AREA sampling reaches the rim (sqrt spread): with 2000 draws
+  // the maximum lands well beyond 0.9 * radius.
+  REQUIRE(maxOffset > 0.9f * vpl.footprintRadius);
+}
+
+TEST_CASE("InstantRadiosity sampleFootprintPoint: zero radius degenerates to the position") {
+  Scene scene;
+  Film film; film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  VPL vpl;
+  vpl.position = Vec3(1.0f, 2.0f, 3.0f);
+  vpl.normal   = Vec3(0.0f, 0.0f, -1.0f);
+  vpl.footprintRadius = 0.0f;
+
+  MTRandom sampler(42);
+  Vec3 point = integrator.sampleFootprintPoint(vpl, &sampler);
+  REQUIRE((point - vpl.position).length() == Catch::Approx(0.0f).margin(1e-6f));
+}
+
 
 // -----------------------------------------------------------------------
 // gatherVPLs — analytical single-VPL cases
@@ -316,6 +375,33 @@ static ShadingData shadeFloorOrigin(Scene& scene) {
   IntersectionData intersection = scene.traverse(ray);
   REQUIRE(intersection.t < FLT_MAX);
   return scene.calculateShadingData(intersection, ray);
+}
+
+// Contribution toward an OFFSET target point uses the target's geometry while
+// keeping the VPL's normal and radiance. VPL record at (0,0,2) facing down,
+// target at (0,2,2): identical geometry to the tilted-VPL analytical case ->
+//   wi = (0,1,1)/sqrt(2), cos_x = cos_vpl = 1/sqrt(2), distSqr = 8,
+//   contribution = 0.0625/PI per channel.
+TEST_CASE("InstantRadiosity unshadowedVPLContribution: target-point override analytical") {
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  DiffuseBSDF floorMaterial(&white);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+  Scene scene = makeFloorScene(&floorMaterial, &background);
+
+  Film film; film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  VPL vpl;
+  vpl.position = Vec3(0.0f, 0.0f, 2.0f);
+  vpl.normal   = Vec3(0.0f, 0.0f, -1.0f);
+  vpl.radiance = Colour(1.0f, 1.0f, 1.0f);
+
+  ShadingData shadingData = shadeFloorOrigin(scene);
+  Colour atCentre = integrator.unshadowedVPLContribution(shadingData, vpl, vpl.position);
+  Colour atOffset = integrator.unshadowedVPLContribution(shadingData, vpl, Vec3(0.0f, 2.0f, 2.0f));
+
+  REQUIRE(atCentre.r == Catch::Approx(0.25f / PI).epsilon(1e-3f));    // canonical unchanged
+  REQUIRE(atOffset.r == Catch::Approx(0.0625f / PI).epsilon(1e-3f));  // target geometry used
 }
 
 // VPL 2 units directly above, facing straight down:
@@ -340,7 +426,8 @@ TEST_CASE("InstantRadiosity gatherVPLs: single VPL analytical contribution") {
   integrator.vpls.push_back(vpl);
 
   ShadingData shadingData = shadeFloorOrigin(scene);
-  Colour result = integrator.gatherVPLs(shadingData);
+  MTRandom gatherSampler(42);
+  Colour result = integrator.gatherVPLs(shadingData, &gatherSampler);
 
   const float geometry = 0.25f / PI; // G * albedo/PI with white albedo
   REQUIRE(result.r == Catch::Approx(vpl.radiance.r * geometry).epsilon(1e-3f));
@@ -367,7 +454,8 @@ TEST_CASE("InstantRadiosity gatherVPLs: near-singular VPL clamped to IR_G_CLAMP"
   integrator.vpls.push_back(vpl);
 
   ShadingData shadingData = shadeFloorOrigin(scene);
-  Colour result = integrator.gatherVPLs(shadingData);
+  MTRandom gatherSampler(42);
+  Colour result = integrator.gatherVPLs(shadingData, &gatherSampler);
 
   const float expected = Config::IR_G_CLAMP / PI;
   REQUIRE(result.r == Catch::Approx(expected).epsilon(1e-3f));
@@ -407,7 +495,8 @@ TEST_CASE("InstantRadiosity gatherVPLs: occluded VPL contributes zero") {
   REQUIRE(intersection.t < FLT_MAX);
   ShadingData shadingData = scene.calculateShadingData(intersection, ray);
 
-  Colour result = integrator.gatherVPLs(shadingData);
+  MTRandom gatherSampler(42);
+  Colour result = integrator.gatherVPLs(shadingData, &gatherSampler);
   REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-6f));
   REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-6f));
   REQUIRE(result.b == Catch::Approx(0.0f).margin(1e-6f));
@@ -556,8 +645,16 @@ TEST_CASE("InstantRadiosity prepare: total deposited radiance matches the bounce
   film.init(8, 8);
   InstantRadiosityIntegrator integrator(&scene, &film);
 
-  const float series = albedoValue * (1.0f + albedoValue + albedoValue * albedoValue
-                                      + albedoValue * albedoValue * albedoValue); // 0.9375
+  // Geometric bounce series up to the CONFIGURED photon depth: deposit d
+  // (d = 1..depth) carries emission * area * a^d in expectation. Computed
+  // from the config constant so the expectation tracks IR_MAX_PHOTON_DEPTH
+  // (at depth 4 this is 0.9375; at depth 100 it is ~1.0 = a/(1-a)).
+  float series = 0.0f;
+  float term = 1.0f;
+  for (int d = 0; d < Config::IR_MAX_PHOTON_DEPTH; d++) {
+    term *= albedoValue;
+    series += term;
+  }
   const Colour expectedTotal = emission * lightArea * series;
 
   const int numRuns = 30;
@@ -688,7 +785,8 @@ TEST_CASE("InstantRadiosity gatherVPLs: VPL behind the shading surface contribut
   vpl.radiance = Colour(1.0f, 1.0f, 1.0f);
   integrator.vpls.push_back(vpl);
 
-  Colour result = integrator.gatherVPLs(shadeFloorOrigin(scene));
+  MTRandom gatherSampler(42);
+  Colour result = integrator.gatherVPLs(shadeFloorOrigin(scene), &gatherSampler);
   REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-6f));
 }
 
@@ -707,7 +805,8 @@ TEST_CASE("InstantRadiosity gatherVPLs: VPL facing away contributes zero") {
   vpl.radiance = Colour(1.0f, 1.0f, 1.0f);
   integrator.vpls.push_back(vpl);
 
-  Colour result = integrator.gatherVPLs(shadeFloorOrigin(scene));
+  MTRandom gatherSampler(42);
+  Colour result = integrator.gatherVPLs(shadeFloorOrigin(scene), &gatherSampler);
   REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-6f));
 }
 
@@ -727,7 +826,8 @@ TEST_CASE("InstantRadiosity gatherVPLs: VPL coincident with the shading point �
   vpl.radiance = Colour(1.0f, 1.0f, 1.0f);
   integrator.vpls.push_back(vpl);
 
-  Colour result = integrator.gatherVPLs(shadingData);
+  MTRandom gatherSampler(42);
+  Colour result = integrator.gatherVPLs(shadingData, &gatherSampler);
   REQUIRE(std::isfinite(result.r));
   REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-6f));
 }
@@ -748,7 +848,8 @@ TEST_CASE("InstantRadiosity gatherVPLs: two identical VPLs contribute exactly tw
   integrator.vpls.push_back(vpl);
   integrator.vpls.push_back(vpl);
 
-  Colour result = integrator.gatherVPLs(shadeFloorOrigin(scene));
+  MTRandom gatherSampler(42);
+  Colour result = integrator.gatherVPLs(shadeFloorOrigin(scene), &gatherSampler);
   REQUIRE(result.r == Catch::Approx(2.0f * 0.25f / PI).epsilon(1e-3f));
 }
 
@@ -771,8 +872,161 @@ TEST_CASE("InstantRadiosity gatherVPLs: tilted VPL analytical contribution") {
   vpl.radiance = Colour(1.0f, 1.0f, 1.0f);
   integrator.vpls.push_back(vpl);
 
-  Colour result = integrator.gatherVPLs(shadeFloorOrigin(scene));
+  MTRandom gatherSampler(42);
+  Colour result = integrator.gatherVPLs(shadeFloorOrigin(scene), &gatherSampler);
   REQUIRE(result.r == Catch::Approx(0.0625f / PI).epsilon(1e-3f));
+}
+
+// -----------------------------------------------------------------------
+// Stage 4 — decoupled shading (footprint jitter)
+//
+// These tests are FLAG-AGNOSTIC: they assert the correct contract for
+// whichever value Config::IR_DECOUPLED_SHADING was compiled with. All other
+// gather tests stay exact under either setting because their hand-built
+// VPLs have footprintRadius = 0 (jitter degenerates to the centre).
+// -----------------------------------------------------------------------
+
+// Counts draws — verifies the branch-before-draw rule: with the flag off,
+// gatherVPLs must consume ZERO random numbers (bit-exact reproducibility of
+// Stage 3 renders); with it on, the jitter consumes two per gathered VPL.
+class CountingSampler : public Sampler {
+public:
+  int draws = 0;
+  MTRandom inner;
+  CountingSampler() : inner(42) {}
+  float next() override { draws++; return inner.next(); }
+};
+
+TEST_CASE("Stage 4: gatherVPLs consumes randomness only when the flag is on") {
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  DiffuseBSDF floorMaterial(&white);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+  Scene scene = makeFloorScene(&floorMaterial, &background);
+
+  Film film; film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  VPL vpl;
+  vpl.position = Vec3(0.0f, 0.0f, 2.0f);
+  vpl.normal   = Vec3(0.0f, 0.0f, -1.0f);
+  vpl.radiance = Colour(1.0f, 1.0f, 1.0f);
+  vpl.footprintRadius = 0.4f;
+  integrator.vpls.push_back(vpl);
+
+  CountingSampler sampler;
+  integrator.gatherVPLs(shadeFloorOrigin(scene), &sampler);
+
+  if constexpr (Config::IR_DECOUPLED_SHADING) {
+    REQUIRE(sampler.draws == 2);   // one disk sample: radius + angle
+  } else {
+    REQUIRE(sampler.draws == 0);   // flag off: stream untouched
+  }
+}
+
+TEST_CASE("Stage 4: jittered gather preserves the mean on an unoccluded VPL") {
+  // Footprint 0.4 at distance 2: the disk-averaged contribution sits within
+  // a few percent of the centre value (G varies ~[0.93, 1.0] x centre).
+  // Flag off: every call returns the centre value exactly.
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  DiffuseBSDF floorMaterial(&white);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+  Scene scene = makeFloorScene(&floorMaterial, &background);
+
+  Film film; film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  VPL vpl;
+  vpl.position = Vec3(0.0f, 0.0f, 2.0f);
+  vpl.normal   = Vec3(0.0f, 0.0f, -1.0f);
+  vpl.radiance = Colour(1.0f, 1.0f, 1.0f);
+  vpl.footprintRadius = 0.4f;
+  integrator.vpls.push_back(vpl);
+
+  ShadingData shadingData = shadeFloorOrigin(scene);
+  const float centreValue = 0.25f / PI;
+
+  if constexpr (Config::IR_DECOUPLED_SHADING) {
+    MTRandom sampler(42);
+    double sum = 0.0;
+    const int samples = 600;
+    for (int i = 0; i < samples; i++) {
+      sum += integrator.gatherVPLs(shadingData, &sampler).r;
+    }
+    float mean = (float)(sum / samples);
+    REQUIRE(mean == Catch::Approx(centreValue).epsilon(0.05f));
+  } else {
+    MTRandom sampler(42);
+    REQUIRE(integrator.gatherVPLs(shadingData, &sampler).r ==
+            Catch::Approx(centreValue).epsilon(1e-3f));
+  }
+}
+
+TEST_CASE("Stage 4: knife-edge occluder — jitter turns a hard verdict into variance") {
+  // Occluder at z=1 blocks shadow rays whose disk target has y <= ~0.1
+  // (including the CENTRE). Flag off: the one canonical ray is blocked ->
+  // exactly zero, every call, zero variance. Flag on: ~37% of the disk is
+  // visible -> nonzero mean, nonzero variance — the island-breaking property
+  // (Bernoulli p(1-p) at the shadow edge).
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  DiffuseBSDF floorMaterial(&white);
+  DiffuseBSDF occluderMaterial(&white);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+
+  Triangle floorTri    = makeTri(Vec3(-10.0f, -10.0f, 0.0f), Vec3(10.0f, -10.0f, 0.0f),
+                                 Vec3(0.0f, 10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0);
+  // Quad-ish patch at z=1 covering x in [-1,1], y in [-1, 0.05]: a ray from
+  // the origin to disk point (xd, yd, 2) crosses z=1 at (xd/2, yd/2), so
+  // targets with yd <= 0.1 are blocked — centre included.
+  Triangle occluderA = makeTri(Vec3(-1.0f, -1.0f, 1.0f), Vec3(1.0f, -1.0f, 1.0f),
+                               Vec3(1.0f, 0.05f, 1.0f), Vec3(0.0f, 0.0f, 1.0f), 1);
+  Triangle occluderB = makeTri(Vec3(-1.0f, -1.0f, 1.0f), Vec3(1.0f, 0.05f, 1.0f),
+                               Vec3(-1.0f, 0.05f, 1.0f), Vec3(0.0f, 0.0f, 1.0f), 1);
+
+  Scene scene;
+  scene.init({floorTri, occluderA, occluderB}, {&floorMaterial, &occluderMaterial}, &background);
+  scene.build();
+
+  Film film; film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  VPL vpl;
+  vpl.position = Vec3(0.0f, 0.0f, 2.0f);
+  vpl.normal   = Vec3(0.0f, 0.0f, -1.0f);
+  vpl.radiance = Colour(1.0f, 1.0f, 1.0f);
+  vpl.footprintRadius = 0.5f;
+  integrator.vpls.push_back(vpl);
+
+  // Shading point at the floor origin, reached from an angle that clears the
+  // occluder patch: ray from (3,3,3) toward the origin crosses z=1 at (1,1,1),
+  // outside x,y in [-1,1]x[-1,0.05].
+  Ray ray(Vec3(3.0f, 3.0f, 3.0f), Vec3(-1.0f, -1.0f, -1.0f).normalize());
+  IntersectionData intersection = scene.traverse(ray);
+  REQUIRE(intersection.t < FLT_MAX);
+  ShadingData shadingData = scene.calculateShadingData(intersection, ray);
+
+  const float fullValue = 0.25f / PI;   // unoccluded centre contribution
+
+  if constexpr (Config::IR_DECOUPLED_SHADING) {
+    MTRandom sampler(42);
+    const int samples = 600;
+    double sum = 0.0, sumSq = 0.0;
+    for (int i = 0; i < samples; i++) {
+      float value = integrator.gatherVPLs(shadingData, &sampler).r;
+      sum += value;
+      sumSq += (double)value * value;
+    }
+    float mean = (float)(sum / samples);
+    float variance = (float)(sumSq / samples) - mean * mean;
+    REQUIRE(mean > 0.15f * fullValue);     // some of the disk is visible...
+    REQUIRE(mean < 0.70f * fullValue);     // ...but far from all of it
+    REQUIRE(variance > 0.0f);              // the hard verdict became noise
+  } else {
+    MTRandom samplerA(42), samplerB(1234);
+    Colour first  = integrator.gatherVPLs(shadingData, &samplerA);
+    Colour second = integrator.gatherVPLs(shadingData, &samplerB);
+    REQUIRE(first.r == Catch::Approx(0.0f).margin(1e-6f));   // centre ray blocked
+    REQUIRE(second.r == Catch::Approx(0.0f).margin(1e-6f));  // deterministically
+  }
 }
 
 // -----------------------------------------------------------------------

@@ -15,6 +15,8 @@ namespace Config {
   constexpr int IR_MAX_PHOTON_DEPTH = 100;
   constexpr int IR_MAX_SPECULAR_DEPTH = 5;
   constexpr float IR_G_CLAMP = 10.0f;
+  constexpr bool  IR_DECOUPLED_SHADING = true;
+  constexpr float IR_FOOTPRINT_FRACTION = 0.005f;
 
   // ReSTIR IR
   constexpr int IR_RESTIR_SPATIAL_ROUNDS = 1;

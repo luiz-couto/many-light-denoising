@@ -76,15 +76,15 @@ void InstantRadiosityIntegrator::depositVPL(const ShadingData& shadingData, cons
   VPL vpl;
   vpl.position = shadingData.x;
   vpl.normal = shadingData.sNormal;
-  vpl.footprintRadius = 0.0f;
+  vpl.footprintRadius = Config::IR_FOOTPRINT_FRACTION * scene->getSceneRadius();
   vpl.radiance = radiance;
   vpls.push_back(vpl);
 }
 
-Colour InstantRadiosityIntegrator::unshadowedVPLContribution(const ShadingData& shadingData, const VPL& vpl) {
+Colour InstantRadiosityIntegrator::unshadowedVPLContribution(const ShadingData& shadingData, const VPL& vpl, const Vec3& targetPoint) {
   Colour black = Colour(0.0f, 0.0f, 0.0f);
  
-  Vec3 toVPL = vpl.position - shadingData.x;
+  Vec3 toVPL = targetPoint - shadingData.x;
   float distSqr = toVPL.lengthSq();
   if (distSqr <= 1e-12f) return black; // VPL at x itself, avoid NaN from normalize
 
@@ -101,13 +101,14 @@ Colour InstantRadiosityIntegrator::unshadowedVPLContribution(const ShadingData& 
   return total;
 }
 
-Colour InstantRadiosityIntegrator::gatherVPLs(const ShadingData& shadingData) {
+Colour InstantRadiosityIntegrator::gatherVPLs(const ShadingData& shadingData, Sampler* sampler) {
   Colour indirectLight = Colour(0.0f, 0.0f, 0.0f);
 
   for (const VPL& vpl : vpls) {
-    Colour contribution = unshadowedVPLContribution(shadingData, vpl);
+    Vec3 targetPoint = Config::IR_DECOUPLED_SHADING ? sampleFootprintPoint(vpl, sampler) : vpl.position;
+    Colour contribution = unshadowedVPLContribution(shadingData, vpl, targetPoint);
     if (contribution.lum() <= 0.0f) continue;
-    if (!scene->visible(shadingData.x, vpl.position)) continue;
+    if (!scene->visible(shadingData.x, targetPoint)) continue;
     indirectLight = indirectLight + contribution;
   }
 
@@ -145,8 +146,18 @@ Colour InstantRadiosityIntegrator::integrate(const Ray& ray, Sampler* sampler) {
     }
 
     // the gather point: first non-specular surface on the chain
-    return throughput * (computeDirectMIS(shadingData, sampler) + gatherVPLs(shadingData));
+    return throughput * (computeDirectMIS(shadingData, sampler) + gatherVPLs(shadingData, sampler));
   }
 
   return Colour(0.0f, 0.0f, 0.0f);   // specular chain exceeded IR_MAX_SPECULAR_DEPTH
+}
+
+Vec3 InstantRadiosityIntegrator::sampleFootprintPoint(const VPL& vpl, Sampler* sampler) {
+  float radius = vpl.footprintRadius * sqrtf(sampler->next()); // uniform over area
+  float angle  = 2.0f * PI * sampler->next();
+
+  Frame frame;
+  frame.fromVector(vpl.normal);
+  Vec3 localOffset(radius * cosf(angle), radius * sinf(angle), 0.0f);
+  return vpl.position + frame.toWorld(localOffset);
 }

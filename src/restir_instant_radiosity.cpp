@@ -131,7 +131,7 @@ void ReSTIRInstantRadiosityIntegrator::tracePrimary(int x, int y, Sampler* sampl
 }
 
 float ReSTIRInstantRadiosityIntegrator::pHat(const ShadingData& shadingData, const VPL& vpl) {
-  return unshadowedVPLContribution(shadingData, vpl).lum();
+  return unshadowedVPLContribution(shadingData, vpl, vpl.position).lum();
 }
 
 void ReSTIRInstantRadiosityIntegrator::generateCandidates(int pixelIndex, Sampler* sampler) {
@@ -222,10 +222,11 @@ Colour ReSTIRInstantRadiosityIntegrator::shadePixel(int pixelIndex, Sampler* sam
   const Reservoir& reservoir = reservoirs[pixelIndex];
   if (reservoir.vplIndex >= 0 && reservoir.contributionWeight > 0.0f) {
     const VPL& winner = vpls[reservoir.vplIndex];
-    Colour contribution = unshadowedVPLContribution(hit.shadingData, winner);
+    Vec3 targetPoint = Config::IR_DECOUPLED_SHADING ? sampleFootprintPoint(winner, sampler) : winner.position;
+    Colour contribution = unshadowedVPLContribution(hit.shadingData, winner, targetPoint);
 
     // Only place we actually cast a ray
-    if (contribution.lum() > 0.0f && scene->visible(hit.shadingData.x, winner.position)) {
+    if (contribution.lum() > 0.0f && scene->visible(hit.shadingData.x, targetPoint)) {
       indirect = contribution * reservoir.contributionWeight;
     }
   }

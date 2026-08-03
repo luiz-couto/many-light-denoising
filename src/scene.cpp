@@ -202,3 +202,11 @@ ShadingData Scene::calculateShadingData(IntersectionData intersection, const Ray
   shadingData.t = intersection.t;
   return shadingData;
 }
+
+Vec3 Scene::getSceneCentre() const {
+  return (bounds.bmax + bounds.bmin) * 0.5f;
+}
+
+float Scene::getSceneRadius() const {
+  return (bounds.bmax - getSceneCentre()).length();
+}
