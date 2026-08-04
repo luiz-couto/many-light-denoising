@@ -18,6 +18,10 @@ Colour BSDF::diffuseAlbedo(const ShadingData& shadingData) {
   return Colour(0.0f, 0.0f, 0.0f); // default: no diffuse component
 }
 
+bool BSDF::isNarrowLobe(float alphaThreshold) {
+  return false;
+}
+
 float ShadingHelper::getCosThetaT(float cosTheta, float n, bool &totalInternalReflection) {
   totalInternalReflection = false;
   float term = 1 - ((1 - (cosTheta * cosTheta)) / (n * n));
@@ -283,6 +287,10 @@ bool ConductorBSDF::isTwoSided() {
 
 float ConductorBSDF::mask(const ShadingData& shadingData) {
   return albedo->sampleAlpha(shadingData.tu, shadingData.tv);
+}
+
+bool ConductorBSDF::isNarrowLobe(float alphaThreshold) {
+  return alpha < alphaThreshold;
 }
 
 GlassBSDF::GlassBSDF(Texture* _albedo, float _intIOR, float _extIOR)

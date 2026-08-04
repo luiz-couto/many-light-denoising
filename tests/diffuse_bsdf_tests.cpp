@@ -212,3 +212,11 @@ TEST_CASE("DiffuseBSDF chi-square: sampled distribution matches PDF") {
   ShadingData sd = makeTestSD(Vec3(sqrtf(0.5f), 0.0f, sqrtf(0.5f)));
   REQUIRE(chiSquareTest(&bsdf, sd));
 }
+
+TEST_CASE("DiffuseBSDF isNarrowLobe: always false — diffuse surfaces are gather points") {
+  // Stage 4c glossy-walk predicate: the base BSDF default is false; a diffuse
+  // surface must never leave the gather set regardless of the threshold.
+  Texture tex = makeWhiteTex();
+  DiffuseBSDF bsdf(&tex);
+  REQUIRE(bsdf.isNarrowLobe(1000.0f) == false);
+}

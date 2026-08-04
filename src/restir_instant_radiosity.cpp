@@ -108,7 +108,7 @@ void ReSTIRInstantRadiosityIntegrator::tracePrimary(int x, int y, Sampler* sampl
       return;
     }
 
-    if (shadingData.bsdf->isPureSpecular()) {
+    if (shadingData.bsdf->isPureSpecular() || shadingData.bsdf->isNarrowLobe(Config::IR_GLOSSY_WALK_ALPHA)) {
       Colour weight;
       float pdf;
       Vec3 newDirection = shadingData.bsdf->sample(shadingData, sampler, weight, pdf);

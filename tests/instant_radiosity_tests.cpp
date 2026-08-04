@@ -1206,3 +1206,111 @@ TEST_CASE("InstantRadiosity vs PathTracer: mean brightness agrees on a diffuse s
   REQUIRE(ratio > 0.8f);
   REQUIRE(ratio < 1.2f);
 }
+
+// -----------------------------------------------------------------------
+// Stage 4c — glossy walk for narrow-lobe conductors
+//
+// Narrow lobe (alpha < IR_GLOSSY_WALK_ALPHA): the conductor leaves the
+// gather set and the camera walk continues through it like a mirror —
+// one GGX lobe sample, throughput *= sample weight. Wide lobes stay
+// gather points (direct MIS + VPL gather at the conductor itself).
+// -----------------------------------------------------------------------
+
+static const Colour SILVER_ETA(0.177f, 0.178f, 0.172f);
+static const Colour SILVER_K(3.638f, 2.973f, 2.430f);
+
+TEST_CASE("InstantRadiosity integrate: narrow-lobe conductor walks to an emissive surface") {
+  // Camera ray straight down from (0,0,1) hits the conductor floor. The lobe
+  // sample reflects near (0,0,1) and hits a large emissive panel at z=2:
+  //   result = sampleWeight * emission,
+  // with sampleWeight reproduced by an identically seeded clone sampler
+  // calling sample() on identical ShadingData.
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  Texture black; fillTexture(black, 1, 1, Colour(0.0f, 0.0f, 0.0f));
+  ConductorBSDF conductorFloor(&white, SILVER_ETA, SILVER_K, 0.1f);
+  REQUIRE(conductorFloor.isNarrowLobe(Config::IR_GLOSSY_WALK_ALPHA));  // test premise
+
+  const Colour emission(3.0f, 2.0f, 1.0f);
+  DiffuseBSDF panelMaterial(&black);
+  panelMaterial.addLight(emission);
+
+  Triangle floorTri = makeTri(Vec3(-10.0f, -10.0f, 0.0f), Vec3(10.0f, -10.0f, 0.0f),
+                              Vec3(0.0f, 10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0);
+  Triangle panelTri = makeTri(Vec3(-40.0f, -40.0f, 2.0f), Vec3(40.0f, -40.0f, 2.0f),
+                              Vec3(0.0f, 40.0f, 2.0f), Vec3(0.0f, 0.0f, -1.0f), 1);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+  Scene scene;
+  scene.init({floorTri, panelTri}, {&conductorFloor, &panelMaterial}, &background);
+  scene.build();
+
+  Film film; film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  Ray ray(Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, 0.0f, -1.0f));
+  MTRandom walkSampler(7);
+  Colour result = integrator.integrate(ray, &walkSampler);
+
+  // Reproduce the walk's one lobe sample with a clone.
+  IntersectionData intersection = scene.traverse(ray);
+  ShadingData shadingData = scene.calculateShadingData(intersection, ray);
+  MTRandom cloneSampler(7);
+  Colour weight; float pdf;
+  Vec3 sampledDirection = conductorFloor.sample(shadingData, &cloneSampler, weight, pdf);
+  REQUIRE(pdf > 0.0f);                 // valid lobe sample for this seed
+  REQUIRE(sampledDirection.z > 0.9f);  // near-mirror: the panel is guaranteed hit
+
+  REQUIRE(result.r == Catch::Approx(weight.r * emission.r).epsilon(1e-3f));
+  REQUIRE(result.g == Catch::Approx(weight.g * emission.g).epsilon(1e-3f));
+  REQUIRE(result.b == Catch::Approx(weight.b * emission.b).epsilon(1e-3f));
+}
+
+TEST_CASE("InstantRadiosity integrate: rough conductor stays a gather point — difference equals the VPL contribution") {
+  // Identical FixedSamplers make the direct terms cancel in the difference;
+  // the hand-placed VPL has footprintRadius 0, so decoupled jitter is a no-op
+  // and the difference is exactly unshadowedVPLContribution AT the conductor.
+  // If the conductor wrongly walked, no gather would happen at it and the
+  // difference would be zero.
+  const Colour emission(5.0f, 5.0f, 5.0f);
+  Texture black; fillTexture(black, 1, 1, Colour(0.0f, 0.0f, 0.0f));
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  DiffuseBSDF lightMaterial(&black);
+  lightMaterial.addLight(emission);
+  ConductorBSDF conductorFloor(&white, SILVER_ETA, SILVER_K, 0.3f);
+  REQUIRE(!conductorFloor.isNarrowLobe(Config::IR_GLOSSY_WALK_ALPHA));  // test premise: wide lobe
+
+  Triangle lightTri = makeTri(Vec3(2.5f, -0.5f, 3.0f), Vec3(3.5f, -0.5f, 3.0f),
+                              Vec3(2.5f, 0.5f, 3.0f), Vec3(0.0f, 0.0f, -1.0f), 0);
+  Triangle floorTri = makeTri(Vec3(-10.0f, -10.0f, 0.0f), Vec3(10.0f, -10.0f, 0.0f),
+                              Vec3(0.0f, 10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 1);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+  Scene scene;
+  scene.init({lightTri, floorTri}, {&lightMaterial, &conductorFloor}, &background);
+  scene.build();
+
+  Film film; film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  Ray ray(Vec3(0.0f, 0.0f, 3.0f), Vec3(0.0f, 0.0f, -1.0f));
+
+  FixedSampler samplerA{0.1f, 0.4f, 0.4f};
+  Colour withoutVPL = integrator.integrate(ray, &samplerA);
+
+  VPL vpl;
+  vpl.position = Vec3(0.0f, 0.0f, 2.0f);
+  vpl.normal   = Vec3(0.0f, 0.0f, -1.0f);
+  vpl.radiance = Colour(2.0f, 0.5f, 0.25f);
+  integrator.vpls.push_back(vpl);
+
+  FixedSampler samplerB{0.1f, 0.4f, 0.4f};   // identical stream: direct term cancels
+  Colour withVPL = integrator.integrate(ray, &samplerB);
+
+  IntersectionData intersection = scene.traverse(ray);
+  ShadingData shadingData = scene.calculateShadingData(intersection, ray);
+  Colour expected = integrator.unshadowedVPLContribution(shadingData, vpl, vpl.position);
+  REQUIRE(expected.lum() > 0.0f);   // the wide lobe does see a VPL straight above
+
+  Colour difference = withVPL - withoutVPL;
+  REQUIRE(difference.r == Catch::Approx(expected.r).epsilon(1e-3f));
+  REQUIRE(difference.g == Catch::Approx(expected.g).epsilon(1e-3f));
+  REQUIRE(difference.b == Catch::Approx(expected.b).epsilon(1e-3f));
+}

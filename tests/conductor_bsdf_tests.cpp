@@ -4,6 +4,7 @@
 #include "texture.h"
 #include "sampling.h"
 #include "bsdf_test_utils.h"
+#include "config.h"
 #include <cmath>
 
 static Texture makeWhiteTex() { Texture t; t.loadDefault(); return t; }
@@ -473,4 +474,42 @@ TEST_CASE("ConductorBSDF roughness=0 clamped: samples concentrate near mirror di
       REQUIRE(dotVal > 0.99f); // within ~8° of mirror direction for alpha=0.01
     }
   }
+}
+
+// -----------------------------------------------------------------------
+// isNarrowLobe — the glossy-walk predicate (Stage 4c)
+//
+// Conductors whose whole BSDF is one narrow GGX lobe are undersampled by
+// VPL gathering (near-delta pHat → empty reservoirs + fireflies); the
+// camera walk continues through them instead. alpha = roughness², clamped
+// to MIN_ALPHA = 0.01.
+// -----------------------------------------------------------------------
+
+TEST_CASE("ConductorBSDF isNarrowLobe: alpha below the threshold walks") {
+  // Threshold expressed relative to the material's own alpha, so the test
+  // is independent of the configured value.
+  Texture tex = makeWhiteTex();
+  ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.3f);   // alpha = 0.09
+  REQUIRE(bsdf.isNarrowLobe(bsdf.alpha * 2.0f) == true);
+}
+
+TEST_CASE("ConductorBSDF isNarrowLobe: alpha above the threshold gathers") {
+  Texture tex = makeWhiteTex();
+  ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.3f);   // alpha = 0.09
+  REQUIRE(bsdf.isNarrowLobe(bsdf.alpha * 0.5f) == false);
+}
+
+TEST_CASE("ConductorBSDF isNarrowLobe: comparison is strict — alpha equal to threshold gathers") {
+  Texture tex = makeWhiteTex();
+  ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.5f);   // alpha = 0.25 exactly
+  REQUIRE(bsdf.isNarrowLobe(bsdf.alpha) == false);
+}
+
+TEST_CASE("ConductorBSDF isNarrowLobe: polished conductor walks at the config threshold") {
+  // roughness 0 clamps to MIN_ALPHA = 0.01 — the most gather-starved case.
+  // Guard: IR_GLOSSY_WALK_ALPHA must stay above the clamp, or polished
+  // chrome silently remains a black, firefly-ridden gather point.
+  Texture tex = makeWhiteTex();
+  ConductorBSDF bsdf(&tex, GOLD_ETA, GOLD_K, 0.0f);
+  REQUIRE(bsdf.isNarrowLobe(Config::IR_GLOSSY_WALK_ALPHA) == true);
 }

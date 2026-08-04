@@ -83,6 +83,7 @@ public:
 	virtual bool isTwoSided() = 0;
 	virtual float mask(const ShadingData& shadingData) = 0;
   virtual Colour diffuseAlbedo(const ShadingData& shadingData);
+  virtual bool isNarrowLobe(float alphaThreshold);
 
 	bool isLight();
 	void addLight(Colour _emission);
@@ -155,6 +156,7 @@ public:
   bool isPureSpecular() override;
   bool isTwoSided() override;
   float mask(const ShadingData& shadingData) override;
+  bool isNarrowLobe(float alphaThreshold) override;
 };
 
 class PlasticBSDF : public BSDF {

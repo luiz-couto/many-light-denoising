@@ -4,6 +4,7 @@
 #include "texture.h"
 #include "sampling.h"
 #include "bsdf_test_utils.h"
+#include "config.h"
 #include <cmath>
 
 static Texture makeWhiteTex() { Texture t; t.loadDefault(); return t; }
@@ -380,4 +381,15 @@ TEST_CASE("PlasticBSDF chi-square: sampled distribution matches PDF") {
   // 45° wo exercises both the GGX specular lobe and the cosine diffuse lobe
   ShadingData sd = makeTestSD(Vec3(sqrtf(0.5f), 0.0f, sqrtf(0.5f)));
   REQUIRE(chiSquareTest(&bsdf, sd));
+}
+
+TEST_CASE("PlasticBSDF isNarrowLobe: false even with a smooth coat — the diffuse substrate must gather") {
+  // Stage 4c glossy-walk predicate: walking a plastic would discard its diffuse
+  // lobe entirely; only single-lobe materials (conductors) may leave the gather
+  // set. Smooth coat: roughness 0.05 → alpha clamps to MIN_ALPHA, narrower than
+  // any conductor that walks — and it must still gather.
+  Texture tex = makeWhiteTex();
+  PlasticBSDF smooth(&tex, GLASS, AIR, 0.05f);
+  REQUIRE(smooth.isNarrowLobe(Config::IR_GLOSSY_WALK_ALPHA) == false);
+  REQUIRE(smooth.isNarrowLobe(smooth.alpha * 2.0f) == false);
 }

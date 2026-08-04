@@ -811,3 +811,77 @@ TEST_CASE("ReSTIR generateCandidates: deterministic for a fixed seed") {
   REQUIRE(integrator.reservoirs[0].vplIndex == winnerA);
   REQUIRE(integrator.reservoirs[0].contributionWeight == Catch::Approx(weightA));
 }
+
+// -----------------------------------------------------------------------
+// Stage 4c — tracePrimary walks narrow-lobe conductors
+//
+// Conductor floor at z=0, large diffuse ceiling at z=4 facing down, camera
+// at (0,0,3) looking down. Narrow lobe: the primary ray hits the conductor,
+// the lobe sample reflects near (0,0,1), and the G-buffer must store the
+// CEILING as the gather point with Fresnel-attenuated throughput. Wide
+// lobe: the conductor itself stays in the G-buffer.
+// -----------------------------------------------------------------------
+
+static const Colour SILVER_ETA(0.177f, 0.178f, 0.172f);
+static const Colour SILVER_K(3.638f, 2.973f, 2.430f);
+
+TEST_CASE("ReSTIR tracePrimary: narrow-lobe conductor walks to the reflected diffuse surface") {
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  ConductorBSDF conductorFloor(&white, SILVER_ETA, SILVER_K, 0.1f);
+  REQUIRE(conductorFloor.isNarrowLobe(Config::IR_GLOSSY_WALK_ALPHA));  // test premise
+  DiffuseBSDF ceilingMaterial(&white);
+
+  Triangle floorTri   = makeTri(Vec3(-10.0f, -10.0f, 0.0f), Vec3(10.0f, -10.0f, 0.0f),
+                                Vec3(0.0f, 10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0);
+  Triangle ceilingTri = makeTri(Vec3(-40.0f, -40.0f, 4.0f), Vec3(40.0f, -40.0f, 4.0f),
+                                Vec3(0.0f, 40.0f, 4.0f), Vec3(0.0f, 0.0f, -1.0f), 1);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+  Scene scene;
+  scene.init({floorTri, ceilingTri}, {&conductorFloor, &ceilingMaterial}, &background);
+  scene.build();
+  setupCamera(scene, 4, 4, Vec3(0.0f, 0.0f, 3.0f), Vec3(0.0f, 0.0f, 0.0f));
+
+  Film film; film.init(4, 4);
+  ReSTIRInstantRadiosityIntegrator integrator(&scene, &film);
+  integrator.gBuffer.resize(16);
+
+  MTRandom sampler(3);
+  integrator.tracePrimary(2, 2, &sampler);
+
+  const PrimaryHit& hit = integrator.gBuffer[2 * 4 + 2];
+  REQUIRE(hit.needsGather == true);
+  REQUIRE(hit.shadingData.bsdf == &ceilingMaterial);   // gather moved to the reflection
+  REQUIRE(hit.shadingData.x.z == Catch::Approx(4.0f).margin(1e-2f));
+  REQUIRE(hit.throughput.lum() > 0.0f);                // Fresnel-attenuated...
+  REQUIRE(hit.throughput.lum() < 1.0f);                // ...not passed through unchanged
+}
+
+TEST_CASE("ReSTIR tracePrimary: rough conductor stays the G-buffer gather point") {
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  ConductorBSDF conductorFloor(&white, SILVER_ETA, SILVER_K, 0.3f);
+  REQUIRE(!conductorFloor.isNarrowLobe(Config::IR_GLOSSY_WALK_ALPHA));  // test premise: wide lobe
+  DiffuseBSDF ceilingMaterial(&white);
+
+  Triangle floorTri   = makeTri(Vec3(-10.0f, -10.0f, 0.0f), Vec3(10.0f, -10.0f, 0.0f),
+                                Vec3(0.0f, 10.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0);
+  Triangle ceilingTri = makeTri(Vec3(-40.0f, -40.0f, 4.0f), Vec3(40.0f, -40.0f, 4.0f),
+                                Vec3(0.0f, 40.0f, 4.0f), Vec3(0.0f, 0.0f, -1.0f), 1);
+  BackgroundColour background(Colour(0.0f, 0.0f, 0.0f));
+  Scene scene;
+  scene.init({floorTri, ceilingTri}, {&conductorFloor, &ceilingMaterial}, &background);
+  scene.build();
+  setupCamera(scene, 4, 4, Vec3(0.0f, 0.0f, 3.0f), Vec3(0.0f, 0.0f, 0.0f));
+
+  Film film; film.init(4, 4);
+  ReSTIRInstantRadiosityIntegrator integrator(&scene, &film);
+  integrator.gBuffer.resize(16);
+
+  MTRandom sampler(3);
+  integrator.tracePrimary(2, 2, &sampler);
+
+  const PrimaryHit& hit = integrator.gBuffer[2 * 4 + 2];
+  REQUIRE(hit.needsGather == true);
+  REQUIRE(hit.shadingData.bsdf == &conductorFloor);    // conductor itself is the gather point
+  REQUIRE(hit.shadingData.x.z == Catch::Approx(0.0f).margin(1e-2f));
+  REQUIRE(hit.throughput.lum() == Catch::Approx(1.0f).margin(1e-5f));  // no walk, no attenuation
+}
