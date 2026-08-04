@@ -6,7 +6,7 @@
 #include "sampling.h"
 
 // RAY_EPSILON: Moller-Trumbore determinant cutoff (parallel-ray rejection)
-constexpr float RAY_EPSILON = 1e-6f;
+constexpr float RAY_EPSILON = 1e-8f;
 // RAY_OFFSET_EPSILON: surface offset for secondary rays
 constexpr float RAY_OFFSET_EPSILON = 1e-3f;
 
