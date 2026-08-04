@@ -5,7 +5,7 @@
 
 void InstantRadiosityIntegrator::prepare(Sampler* sampler) {
   vpls.clear();
-  vpls.reserve(Config::IR_NUM_LIGHT_PATHS * Config::IR_MAX_PHOTON_DEPTH);
+  vpls.reserve(Config::IR_NUM_LIGHT_PATHS * 4);
 
   for (int i=0; i<Config::IR_NUM_LIGHT_PATHS; i++) {
     Ray ray;
