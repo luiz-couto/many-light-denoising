@@ -588,11 +588,12 @@ TEST_CASE("pathTrace: Russian Roulette kills low-throughput path") {
 TEST_CASE("pathTrace: Russian Roulette boosts surviving path throughput by 1/q") {
     // throughput=(0.5,0.5,0.5): lum=0.5, qClamped=0.5, epsilon=0.1 < 0.5 → survive.
     // newThroughput boosted: (0.5/0.5, 0.5/0.5, 0.5/0.5) = WHITE.
-    // Recursive ray (0,1,0) misses floor → returns WHITE * bg(WHITE) = WHITE.
-    // result = WHITE(indirect) + (2/3) * (0.5,0.5,0.5)(directLight * throughput)
-    //        = (1,1,1) + (1/3,1/3,1/3) = (4/3, 4/3, 4/3) ≈ 1.333
-    // Without the boost: newThroughput = (0.5,0.5,0.5), indirect = (0.5,0.5,0.5),
-    //   result = (0.5+1/3, ...) = (5/6, ...) ≈ 0.833. Different → verifies the boost.
+    // Recursive ray (0,1,0) misses floor at depth>0, non-specular → env MIS weight applies:
+    //   envSelPDF = pmf(1.0) * envPDF(0.5) = 0.5, bsdfPDF = 1.0 → weight = 1/(1+0.5) = 2/3
+    //   indirect = WHITE * bg(WHITE) * 2/3 = 2/3.
+    // result = (2/3)(indirect) + (2/3) * (0.5)(directLight * throughput)
+    //        = 2/3 + 1/3 = 1.0
+    // Without the boost: indirect = (0.5)*(2/3) = 1/3, result = 1/3 + 1/3 = 2/3. Different → verifies the boost.
     FixedBSDF floorBSDF(WHITE);
     MockEnvLight envLight(Vec3(0.0f, 1.0f, 0.0f), WHITE, 0.5f);
     Triangle floorTri = makeFloorTriangle();
@@ -607,7 +608,7 @@ TEST_CASE("pathTrace: Russian Roulette boosts surviving path throughput by 1/q")
     Colour throughput(0.5f, 0.5f, 0.5f);
     Colour result = pt.pathTrace(ray, throughput, PathTracerIntegrator::RR_DEPTH, 0.0f, &sampler, false);
 
-    float expected = 4.0f / 3.0f;
+    float expected = 1.0f;
     REQUIRE(result.r == Catch::Approx(expected).margin(1e-4f));
     REQUIRE(result.g == Catch::Approx(expected).margin(1e-4f));
     REQUIRE(result.b == Catch::Approx(expected).margin(1e-4f));
@@ -657,4 +658,190 @@ TEST_CASE("integrate: ray miss returns background colour") {
     REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-5f));
     REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-5f));
     REQUIRE(result.b == Catch::Approx(1.0f).margin(1e-5f));
+}
+
+// -----------------------------------------------------------------------
+// environmentLightSelectionPDF tests
+//
+// environmentLightSelectionPDF = (bgPower / totalPower) * background->PDF(sd, wi)
+// The env-map analogue of areaLightSelectionPDF: folds the power-weighted
+// selection pmf into the directional pdf so the BSDF-sampling MIS branch
+// prices the same competing strategy as NEE (which selects via sampleLightWeighted).
+//
+// MockEnvLight(WHITE, 0.5): totalIntegratedPower = 1 * 4π, PDF = 0.5 everywhere.
+// WHITE area light (area=0.5):  totalIntegratedPower = 0.5π.
+// -----------------------------------------------------------------------
+
+TEST_CASE("environmentLightSelectionPDF: env as only light returns pmf=1 times env PDF") {
+    FixedBSDF dummyBSDF(BLACK);
+    MockEnvLight envLight(Vec3(0.0f, 1.0f, 0.0f), WHITE, 0.5f);
+    Triangle dummy = makeDistantTriangle();
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &envLight);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+
+    ShadingData sd = {};
+    REQUIRE(scene.environmentLightSelectionPDF(sd, Vec3(0.0f, 1.0f, 0.0f)) == Catch::Approx(0.5f).margin(1e-5f));
+}
+
+TEST_CASE("environmentLightSelectionPDF: pmf reflects env share of total power with an area light present") {
+    // lights = [area 0.5π, env 4π] → envPmf = 4π/4.5π = 8/9 → result = (8/9)*0.5 = 4/9.
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    MockEnvLight envLight(Vec3(0.0f, 1.0f, 0.0f), WHITE, 0.5f);
+    Triangle lightTri = makeLightTriangle();
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &envLight);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+
+    ShadingData sd = {};
+    float expected = (8.0f / 9.0f) * 0.5f;  // = 4/9
+    REQUIRE(scene.environmentLightSelectionPDF(sd, Vec3(0.0f, 1.0f, 0.0f)) == Catch::Approx(expected).margin(1e-5f));
+}
+
+TEST_CASE("environmentLightSelectionPDF: zero-power background returns 0 even with other lights") {
+    // Black background is never pushed to lights → its selection pmf is 0.
+    // NEE can never sample it, so the BSDF branch must take full credit (weight=1 at callers).
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    BackgroundColour blackBg(BLACK);
+    Triangle lightTri = makeLightTriangle();
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+
+    ShadingData sd = {};
+    REQUIRE(scene.environmentLightSelectionPDF(sd, Vec3(0.0f, 1.0f, 0.0f)) == Catch::Approx(0.0f).margin(1e-6f));
+}
+
+TEST_CASE("environmentLightSelectionPDF: no lights at all returns 0 (totalPower guard)") {
+    FixedBSDF dummyBSDF(BLACK);
+    BackgroundColour blackBg(BLACK);
+    Triangle dummy = makeDistantTriangle();
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+
+    ShadingData sd = {};
+    REQUIRE(scene.environmentLightSelectionPDF(sd, Vec3(0.0f, 1.0f, 0.0f)) == Catch::Approx(0.0f).margin(1e-6f));
+}
+
+// -----------------------------------------------------------------------
+// pathTrace: env miss MIS branch
+//
+// The miss branch is the BSDF-sampling half of the env MIS pair. NEE
+// (lightSamplingMISEnvMap) already discounts its env samples by
+// envSelPDF/(envSelPDF + brdfPDF); without the matching weight here the two
+// branches sum to more than 1 and env light through rough BSDFs is over-counted.
+//
+// weight = bsdfPDF / (bsdfPDF + envSelPDF), skipped at depth=0 and specular bounces.
+// MockEnvLight as only light: envSelPDF = pmf(1.0) * PDF(0.5) = 0.5.
+// -----------------------------------------------------------------------
+
+TEST_CASE("pathTrace: env miss at depth>0 is weighted by bsdfPDF/(bsdfPDF + envSelPDF)") {
+    // bsdfPDF=1.0, envSelPDF=0.5 → weight = 1/1.5 = 2/3.
+    // The old unweighted branch returned 1.0 — this pins the fix.
+    FixedBSDF dummyBSDF(BLACK);
+    MockEnvLight envLight(Vec3(0.0f, 1.0f, 0.0f), WHITE, 0.5f);
+    Triangle dummy = makeDistantTriangle();
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &envLight);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    PathTracerIntegrator pt(&scene, &film);
+    MTRandom sampler;
+
+    Ray ray; ray.init(Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
+    Colour result = pt.pathTrace(ray, WHITE, 1, 1.0f, &sampler, false);
+
+    float expected = 1.0f / (1.0f + 0.5f);  // = 2/3
+    REQUIRE(result.r == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(expected).margin(1e-4f));
+}
+
+TEST_CASE("pathTrace: env miss after specular bounce returns full unweighted env radiance") {
+    // NEE cannot reach the env through a delta lobe → the BSDF branch owns the sample.
+    FixedBSDF dummyBSDF(BLACK);
+    MockEnvLight envLight(Vec3(0.0f, 1.0f, 0.0f), WHITE, 0.5f);
+    Triangle dummy = makeDistantTriangle();
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &envLight);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    PathTracerIntegrator pt(&scene, &film);
+    MTRandom sampler;
+
+    Ray ray; ray.init(Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
+    Colour result = pt.pathTrace(ray, WHITE, 2, 1.0f, &sampler, true);
+
+    REQUIRE(result.r == Catch::Approx(1.0f).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(1.0f).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(1.0f).margin(1e-4f));
+}
+
+TEST_CASE("pathTrace: env miss with bsdfPDF=0 at depth>0 returns black — light sampling owns this sample") {
+    // weight = 0/(0+0.5) = 0. Mirrors the area-light analog test above.
+    FixedBSDF dummyBSDF(BLACK);
+    MockEnvLight envLight(Vec3(0.0f, 1.0f, 0.0f), WHITE, 0.5f);
+    Triangle dummy = makeDistantTriangle();
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &envLight);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    PathTracerIntegrator pt(&scene, &film);
+    MTRandom sampler;
+
+    Ray ray; ray.init(Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
+    Colour result = pt.pathTrace(ray, WHITE, 1, 0.0f, &sampler, false);
+
+    REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-5f));
+    REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-5f));
+    REQUIRE(result.b == Catch::Approx(0.0f).margin(1e-5f));
+}
+
+TEST_CASE("pathTrace: env miss weight includes the light-selection pmf when an area light shares the scene") {
+    // lights = [area 0.5π, env 4π] → envSelPDF = (8/9)*0.5 = 4/9.
+    // bsdfPDF=1.0 → weight = 1/(1 + 4/9) = 9/13 ≈ 0.6923.
+    // Without the pmf: weight = 1/1.5 = 2/3 ≈ 0.6667 — distinguishable.
+    // Ray from (5,0,5) going up misses the light triangle at x∈[2,3], z∈[0,1].
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    MockEnvLight envLight(Vec3(0.0f, 1.0f, 0.0f), WHITE, 0.5f);
+    Triangle lightTri = makeSecondLightTriangle();
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &envLight);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    PathTracerIntegrator pt(&scene, &film);
+    MTRandom sampler;
+
+    Ray ray; ray.init(Vec3(5.0f, 0.0f, 5.0f), Vec3(0.0f, 1.0f, 0.0f));
+    Colour result = pt.pathTrace(ray, WHITE, 1, 1.0f, &sampler, false);
+
+    float expected = 1.0f / (1.0f + 4.0f / 9.0f);  // = 9/13
+    REQUIRE(result.r == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(expected).margin(1e-4f));
+}
+
+TEST_CASE("pathTrace: weighted env miss with black background and no lights stays black without NaN") {
+    // totalPower=0 → envSelPDF=0 → denom = bsdfPDF > 0 → weight=1 → black * 1 = black.
+    FixedBSDF dummyBSDF(BLACK);
+    BackgroundColour blackBg(BLACK);
+    Triangle dummy = makeDistantTriangle();
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    PathTracerIntegrator pt(&scene, &film);
+    MTRandom sampler;
+
+    Ray ray; ray.init(Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
+    Colour result = pt.pathTrace(ray, WHITE, 1, 1.0f, &sampler, false);
+
+    REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-5f));
+    REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-5f));
+    REQUIRE(result.b == Catch::Approx(0.0f).margin(1e-5f));
 }

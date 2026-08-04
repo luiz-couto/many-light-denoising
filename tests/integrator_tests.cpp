@@ -1219,3 +1219,263 @@ TEST_CASE("Lambertian irradiance: computeDirectMIS matches albedo * cosTheta * I
     REQUIRE(result.g == Catch::Approx(expected).margin(expected * 0.01f));
     REQUIRE(result.b == Catch::Approx(expected).margin(expected * 0.01f));
 }
+
+// -----------------------------------------------------------------------
+// computeDirectBSDFMIS tests (Stage 4b)
+//
+// The BSDF-sampling half of the direct-light MIS pair. Samples the BSDF once,
+// traces one ray:
+//   miss          → env radiance * pdf/(pdf + envSelPDF)
+//   hit emissive  → emission * pdf/(pdf + areaLightSelectionPDF * distSq/cosThetaLight)
+//   hit ordinary  → black (indirect stays the VPLs' job)
+// Guards: pure specular → black; pdf<=0 or black throughput → black.
+//
+// FixedBSDF as the shading BSDF: sample() returns direction (0,1,0), pdf=1,
+// throughput=colour. Shading point (0.25,0,0.25) → offset ray origin
+// (0.25, RAY_OFFSET_EPSILON, 0.25) going straight up.
+// -----------------------------------------------------------------------
+
+// Env light with radiance but zero reported power — never enters scene->lights,
+// modelling a background NEE cannot select.
+class ZeroPowerEnvLight : public Light {
+public:
+    Colour emission;
+    explicit ZeroPowerEnvLight(Colour e) : emission(e) {}
+    Vec3   sample(const ShadingData&, Sampler*, Colour& e, float& pdf) override { e = emission; pdf = 0.5f; return Vec3(0.0f, 1.0f, 0.0f); }
+    Colour evaluate(const Vec3&) override { return emission; }
+    float  PDF(const ShadingData&, const Vec3&) override { return 0.5f; }
+    bool   isArea() override { return false; }
+    Vec3   normal(const ShadingData&, const Vec3&) override { return Vec3(0.0f, 1.0f, 0.0f); }
+    float  totalIntegratedPower() override { return 0.0f; }
+    Vec3   sampleDirectionFromLight(Sampler*, float& pdf) override { pdf = 0.5f; return Vec3(0.0f, 1.0f, 0.0f); }
+};
+
+TEST_CASE("computeDirectBSDFMIS: returns black for pure specular BSDF — specular walk owns delta lobes") {
+    PureSpecularBSDF specBSDF;
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    Triangle lightTri = makeLightTriangle();
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&specBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+    REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-6f));
+    REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-6f));
+    REQUIRE(result.b == Catch::Approx(0.0f).margin(1e-6f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: returns black when sample pdf is 0") {
+    // ZeroPDFBSDF: sample() returns pdf=0 → guard fires before any traversal.
+    ZeroPDFBSDF shadingBSDF(WHITE);
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    Triangle lightTri = makeLightTriangle();
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+    REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-6f));
+    REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-6f));
+    REQUIRE(result.b == Catch::Approx(0.0f).margin(1e-6f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: returns black when sampled throughput is black") {
+    // FixedBSDF(BLACK): pdf=1 but throughput luminance 0 → guard fires.
+    FixedBSDF shadingBSDF(BLACK);
+    FixedBSDF dummyBSDF(BLACK);
+    Triangle dummy = makeDistantTriangle();
+    MockEnvLight mockEnv(Vec3(0,1,0), WHITE, 0.5f);
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &mockEnv);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+    REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-6f));
+    REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-6f));
+    REQUIRE(result.b == Catch::Approx(0.0f).margin(1e-6f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: analytical — env miss weighted by pdf/(pdf + envSelPDF)") {
+    // Env as only light: envSelPDF = pmf(1.0) * PDF(0.5) = 0.5.
+    // pdf=1.0, throughput=WHITE, emission=WHITE → result = 1/(1+0.5) = 2/3.
+    // The unweighted version returns 1.0 — this pins the balance weight.
+    FixedBSDF shadingBSDF(WHITE);
+    FixedBSDF dummyBSDF(BLACK);
+    Triangle dummy = makeDistantTriangle();
+    MockEnvLight mockEnv(Vec3(0,1,0), WHITE, 0.5f);
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &mockEnv);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+
+    float expected = 1.0f / (1.0f + 0.5f);  // = 2/3
+    REQUIRE(result.r == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(expected).margin(1e-4f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: env miss weight includes the light-selection pmf") {
+    // lights = [area 0.5π, env 4π] → envSelPDF = (8/9)*0.5 = 4/9.
+    // weight = 1/(1 + 4/9) = 9/13 ≈ 0.6923; without pmf: 2/3 ≈ 0.6667 — distinguishable.
+    // Second light triangle at x∈[2,3] — the up-ray from (0.25,·,0.25) misses it.
+    FixedBSDF shadingBSDF(WHITE);
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    Triangle lightTri = makeSecondLightTriangle();
+    MockEnvLight mockEnv(Vec3(0,1,0), WHITE, 0.5f);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &mockEnv);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+
+    float expected = 1.0f / (1.0f + 4.0f / 9.0f);  // = 9/13
+    REQUIRE(result.r == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(expected).margin(1e-4f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: zero-power background outside the light list takes full credit") {
+    // ZeroPowerEnvLight never enters scene->lights → NEE can never sample it →
+    // envSelPDF=0 → weight=1 → result = throughput * emission = 1.0.
+    FixedBSDF shadingBSDF(WHITE);
+    FixedBSDF dummyBSDF(BLACK);
+    Triangle dummy = makeDistantTriangle();
+    ZeroPowerEnvLight zeroPowerEnv(WHITE);
+    Scene scene; Film film;
+    scene.init({dummy}, {&dummyBSDF}, &zeroPowerEnv);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+    REQUIRE(result.r == Catch::Approx(1.0f).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(1.0f).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(1.0f).margin(1e-4f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: analytical — emissive hit weighted like the pathTrace formula") {
+    // Ray from (0.25, ε, 0.25) up hits the light at t = 2-ε → distSq = (2-ε)².
+    // cosThetaLight = |(0,-1,0)·(0,-1,0)| = 1. areaLightSelectionPDF = 2.0 (only light).
+    // lightPDF_sa = 2 * distSq / 1;  weight = pdf/(pdf + lightPDF_sa) with pdf=1.
+    FixedBSDF shadingBSDF(WHITE);
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    Triangle lightTri = makeLightTriangle();
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+
+    float t = 2.0f - RAY_OFFSET_EPSILON;
+    float lightPDF = 2.0f * t * t;
+    float expected = 1.0f / (1.0f + lightPDF);  // ≈ 0.1112
+    REQUIRE(result.r == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(expected).margin(1e-4f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: emissive hit scales with sampled throughput per channel") {
+    // Asymmetric sample throughput exposes a missing multiply: result = colour * weight.
+    Colour asymmetric(0.5f, 0.25f, 0.8f);
+    FixedBSDF shadingBSDF(asymmetric);
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    Triangle lightTri = makeLightTriangle();
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri}, {&emissiveBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+
+    float t = 2.0f - RAY_OFFSET_EPSILON;
+    float weight = 1.0f / (1.0f + 2.0f * t * t);
+    REQUIRE(result.r == Catch::Approx(asymmetric.r * weight).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(asymmetric.g * weight).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(asymmetric.b * weight).margin(1e-4f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: hitting ordinary geometry returns black — no gather, indirect stays the VPLs' job") {
+    // Blocker at y=1 intercepts the ray before the light at y=2. Direct-only branch → black.
+    FixedBSDF shadingBSDF(WHITE);
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    FixedBSDF blockerBSDF(WHITE);  // reflective but NOT emissive
+    Triangle lightTri = makeLightTriangle();
+    Triangle blocker  = makeBlockerTriangle();
+    blocker.materialIndex = 1;
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri, blocker}, {&emissiveBSDF, &blockerBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd = makeSD(&shadingBSDF);
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+    REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-6f));
+    REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-6f));
+    REQUIRE(result.b == Catch::Approx(0.0f).margin(1e-6f));
+}
+
+TEST_CASE("computeDirectBSDFMIS: shading point on real geometry does not self-hit — offset regression") {
+    // Shading point ON the blocker surface at (0.25, 1, 0.25). Without the
+    // RAY_OFFSET_EPSILON offset the up-ray self-hits the blocker (ordinary
+    // geometry → black). With it, the ray reaches the light at t = 1-ε.
+    FixedBSDF shadingBSDF(WHITE);
+    FixedBSDF emissiveBSDF(WHITE); emissiveBSDF.emission = WHITE;
+    FixedBSDF blockerBSDF(WHITE);
+    Triangle lightTri = makeLightTriangle();
+    Triangle blocker  = makeBlockerTriangle();
+    blocker.materialIndex = 1;
+    BackgroundColour blackBg(BLACK);
+    Scene scene; Film film;
+    scene.init({lightTri, blocker}, {&emissiveBSDF, &blockerBSDF}, &blackBg);
+    scene.build();
+    scene.width = 64; scene.height = 64; film.init(64, 64);
+    Integrator integrator(&scene, &film);
+    ShadingData sd(Vec3(0.25f, 1.0f, 0.25f), Vec3(0.0f, 1.0f, 0.0f));
+    sd.bsdf = &shadingBSDF;
+    MTRandom sampler;
+
+    Colour result = integrator.computeDirectBSDFMIS(sd, &sampler);
+
+    float t = 1.0f - RAY_OFFSET_EPSILON;
+    float expected = 1.0f / (1.0f + 2.0f * t * t);  // ≈ 0.3338
+    REQUIRE(result.r == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.g == Catch::Approx(expected).margin(1e-4f));
+    REQUIRE(result.b == Catch::Approx(expected).margin(1e-4f));
+}

@@ -17,7 +17,16 @@ Colour PathTracerIntegrator::pathTrace(const Ray& ray, Colour throughput, int de
 
   // miss
   if (shadingData.t == FLT_MAX) {
-    return throughput * scene->background->evaluate(ray.dir);
+    Colour envRadiance = throughput * scene->background->evaluate(ray.dir);
+    if (isSpecularBounce || depth == 0) {
+      return envRadiance;
+    }
+
+    //  BSDF sampling branch of MIS
+    float envPDF = scene->environmentLightSelectionPDF(shadingData, ray.dir);
+    float denom  = bsdfPDF + envPDF;
+    float weight = (denom > 0.0f) ? bsdfPDF / denom : 1.0f;
+    return envRadiance * weight;
   }
 
   // hit emissive

@@ -148,3 +148,49 @@ LightSamplingMISResult Integrator::lightSamplingMISEnvMap(ShadingData shadingDat
 
   return { finalColor, wi, fullPdf, 1.0f, 1.0f, gTerm };
 }
+
+Colour Integrator::computeDirectBSDFMIS(const ShadingData& shadingData, Sampler* sampler) {
+  if (shadingData.bsdf->isPureSpecular() == true) {
+    return Colour(0.0f, 0.0f, 0.0f);
+  }
+
+  Colour throughput;
+  float pdf;
+  Vec3 direction = shadingData.bsdf->sample(shadingData, sampler, throughput, pdf);
+  if (pdf <= 0.0f || throughput.lum() <= 0.0f) {
+    return Colour(0.0f, 0.0f, 0.0f);
+  }
+
+  Ray ray(shadingData.x + (direction * RAY_OFFSET_EPSILON), direction);
+
+  IntersectionData intersection = scene->traverse(ray);
+  ShadingData hitShadingData = scene->calculateShadingData(intersection, ray);
+
+  // miss: env radiance, weighted against the NEE env strategy (whose pdf
+  // includes the light-selection pmf, so the competing pdf here must too)
+  if (hitShadingData.t == FLT_MAX) {
+    float envPDF = scene->environmentLightSelectionPDF(shadingData, direction);
+    float denom  = pdf + envPDF;
+    float weight = (denom > 0.0f) ? pdf / denom : 1.0f;
+    return throughput * scene->background->evaluate(ray.dir) * weight;
+  }
+
+  // hit emissive
+  if (hitShadingData.bsdf->isLight()) {
+    Colour emission = hitShadingData.bsdf->emit(hitShadingData, hitShadingData.wo);
+
+    //  BSDF sampling branch of MIS
+    float distSq = intersection.t * intersection.t;
+    float cosThetaLight = fabsf(hitShadingData.sNormal.dot(hitShadingData.wo));
+    if (cosThetaLight <= 0.0f || distSq <= 0.0f) {
+      return throughput * emission;
+    }
+
+    float lightPDF = scene->areaLightSelectionPDF(intersection.ID) * distSq / cosThetaLight;
+    float denom  = pdf + lightPDF;
+    float weight = (denom > 0.0f) ? pdf / denom : 1.0f;
+    return throughput * emission * weight;
+  }
+
+  return Colour(0.0f, 0.0f, 0.0f);
+}

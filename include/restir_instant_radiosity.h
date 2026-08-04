@@ -40,8 +40,8 @@ public:
   void spatialReuse(int x, int y, int round, Sampler* sampler);
   int selectRandomNeighbour(int x, int y, Sampler* sampler);
 
-  // Phase 3: direct MIS + winner contribution * W * visibility, the one
-  // shadow ray. Returns the colour to splat.
+  // Phase 3: direct MIS (NEE + BSDF-sampling branch) + winner contribution
+  // * W * visibility, one shadow ray each. Returns the colour to splat.
   Colour shadePixel(int pixelIndex, Sampler* sampler);
 };
 

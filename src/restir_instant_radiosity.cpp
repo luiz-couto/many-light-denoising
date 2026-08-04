@@ -216,7 +216,7 @@ Colour ReSTIRInstantRadiosityIntegrator::shadePixel(int pixelIndex, Sampler* sam
   const PrimaryHit& hit = gBuffer[pixelIndex];
   if (!hit.needsGather) return hit.resolved; // sky/lamp/mirror-overflow
 
-  Colour direct = computeDirectMIS(hit.shadingData, sampler);
+  Colour direct = computeDirectMIS(hit.shadingData, sampler) + computeDirectBSDFMIS(hit.shadingData, sampler);
   Colour indirect(0.0f, 0.0f, 0.0f);
 
   const Reservoir& reservoir = reservoirs[pixelIndex];
@@ -225,7 +225,7 @@ Colour ReSTIRInstantRadiosityIntegrator::shadePixel(int pixelIndex, Sampler* sam
     Vec3 targetPoint = Config::IR_DECOUPLED_SHADING ? sampleFootprintPoint(winner, sampler) : winner.position;
     Colour contribution = unshadowedVPLContribution(hit.shadingData, winner, targetPoint);
 
-    // Only place we actually cast a ray
+    // The winner's single shadow ray
     if (contribution.lum() > 0.0f && scene->visible(hit.shadingData.x, targetPoint)) {
       indirect = contribution * reservoir.contributionWeight;
     }

@@ -33,6 +33,7 @@ public:
   virtual Colour integrate(const Ray& ray, Sampler* sampler) { return {}; }
 
   Colour computeDirectMIS(const ShadingData& sd, Sampler* sampler);
+  Colour computeDirectBSDFMIS(const ShadingData& shadingData, Sampler* sampler);
   void lightSamplingMIS(ShadingData shadingData, Sampler* sampler, Colour &result);
   LightSamplingMISResult lightSamplingMISAreaLight(ShadingData shadingData, Sampler* sampler, Light* sampledLight, float pmf);
   LightSamplingMISResult lightSamplingMISEnvMap(ShadingData shadingData, Sampler* sampler, Light* sampledLight, float pmf);

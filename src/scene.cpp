@@ -182,6 +182,16 @@ float Scene::areaLightSelectionPDF(unsigned int triangleID) const {
   return 0.0f;
 }
 
+float Scene::environmentLightSelectionPDF(const ShadingData& shadingData, const Vec3& wi) const {
+  float totalPower = 0.0f;
+  for (Light* light : lights) {
+    totalPower += light->totalIntegratedPower();
+  }
+  if (totalPower <= 0.0f) return 0.0f;
+
+  return (background->totalIntegratedPower() / totalPower) * background->PDF(shadingData, wi);
+}
+
 ShadingData Scene::calculateShadingData(IntersectionData intersection, const Ray& ray) {
   ShadingData shadingData = {};
   if (intersection.t < FLT_MAX) {

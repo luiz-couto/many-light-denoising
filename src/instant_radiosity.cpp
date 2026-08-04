@@ -146,7 +146,8 @@ Colour InstantRadiosityIntegrator::integrate(const Ray& ray, Sampler* sampler) {
     }
 
     // the gather point: first non-specular surface on the chain
-    return throughput * (computeDirectMIS(shadingData, sampler) + gatherVPLs(shadingData, sampler));
+    Colour direct = computeDirectMIS(shadingData, sampler) + computeDirectBSDFMIS(shadingData, sampler);
+    return throughput * (direct + gatherVPLs(shadingData, sampler));
   }
 
   return Colour(0.0f, 0.0f, 0.0f);   // specular chain exceeded IR_MAX_SPECULAR_DEPTH
