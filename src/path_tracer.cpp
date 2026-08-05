@@ -1,6 +1,7 @@
 #include "path_tracer.h"
 #include "core.h"
 #include "geometry.h"
+#include "config.h"
 
 Colour PathTracerIntegrator::integrate(const Ray& ray, Sampler* sampler) {
   Colour start = Colour(1.0f, 1.0f, 1.0f);
@@ -8,7 +9,7 @@ Colour PathTracerIntegrator::integrate(const Ray& ray, Sampler* sampler) {
 }
 
 Colour PathTracerIntegrator::pathTrace(const Ray& ray, Colour throughput, int depth, float bsdfPDF, Sampler* sampler, bool isSpecularBounce) {
-  if (depth > MAX_DEPTH) {
+  if (depth > Config::PT_MAX_DEPTH) {
 		return Colour(0.0f, 0.0f, 0.0f);
 	}
 
@@ -63,7 +64,7 @@ Colour PathTracerIntegrator::pathTrace(const Ray& ray, Colour throughput, int de
   Colour newThroughput = throughput * indirect;
 
   // RR
-  if (depth >= RR_DEPTH) {
+  if (depth >= Config::PT_RR_DEPTH) {
     float q = newThroughput.lum();
     float qClamped = std::min(q, 1.0f);
     float epsilon = sampler->next();
