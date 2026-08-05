@@ -17,11 +17,8 @@ class Window {
   Event pollEvents();
   
   // Upload RGB buffer and present
-  void update(const uint8_t* pixels); 
-  
-  // Save pixels as a PNG file
-  void savePNG(const char* path, const uint8_t* pixels);
-  
+  void update(const uint8_t* pixels);
+
 private:
   SDL_Window* sdlWindow;
   SDL_Renderer* sdlRenderer;

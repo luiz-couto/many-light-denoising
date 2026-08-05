@@ -5,6 +5,7 @@
 #include "film.h"
 #include "geometry.h"
 #include "light.h"
+#include "config.h"
 
 static const Colour WHITE(1.0f, 1.0f, 1.0f);
 static const Colour BLACK(0.0f, 0.0f, 0.0f);
@@ -204,7 +205,7 @@ TEST_CASE("pathTrace: depth > MAX_DEPTH returns black regardless of scene") {
     MTRandom sampler;
 
     Ray ray; ray.init(Vec3(0.25f, 0.0f, 0.25f), Vec3(0.0f, 1.0f, 0.0f));
-    Colour result = pt.pathTrace(ray, WHITE, PathTracerIntegrator::MAX_DEPTH + 1, 0.0f, &sampler, false);
+    Colour result = pt.pathTrace(ray, WHITE, Config::PT_MAX_DEPTH + 1, 0.0f, &sampler, false);
 
     REQUIRE(result.r == Catch::Approx(0.0f).margin(1e-5f));
     REQUIRE(result.g == Catch::Approx(0.0f).margin(1e-5f));
@@ -226,7 +227,7 @@ TEST_CASE("pathTrace: depth == MAX_DEPTH still processes (boundary, not killed)"
     MTRandom sampler;
 
     Ray ray; ray.init(Vec3(0.25f, 0.0f, 0.25f), Vec3(0.0f, 1.0f, 0.0f));
-    Colour result = pt.pathTrace(ray, WHITE, PathTracerIntegrator::MAX_DEPTH, 1.0f, &sampler, true);
+    Colour result = pt.pathTrace(ray, WHITE, Config::PT_MAX_DEPTH, 1.0f, &sampler, true);
 
     REQUIRE(result.r == Catch::Approx(1.0f).margin(1e-5f));
     REQUIRE(result.g == Catch::Approx(1.0f).margin(1e-5f));
@@ -577,7 +578,7 @@ TEST_CASE("pathTrace: Russian Roulette kills low-throughput path") {
 
     Ray ray; ray.init(Vec3(0.0f, 2.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f));
     Colour throughput(0.1f, 0.1f, 0.1f);
-    Colour result = pt.pathTrace(ray, throughput, PathTracerIntegrator::RR_DEPTH, 0.0f, &sampler, false);
+    Colour result = pt.pathTrace(ray, throughput, Config::PT_RR_DEPTH, 0.0f, &sampler, false);
 
     float directLight = 2.0f / 3.0f;
     REQUIRE(result.r == Catch::Approx(directLight * 0.1f).margin(1e-4f));
@@ -606,7 +607,7 @@ TEST_CASE("pathTrace: Russian Roulette boosts surviving path throughput by 1/q")
 
     Ray ray; ray.init(Vec3(0.0f, 2.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f));
     Colour throughput(0.5f, 0.5f, 0.5f);
-    Colour result = pt.pathTrace(ray, throughput, PathTracerIntegrator::RR_DEPTH, 0.0f, &sampler, false);
+    Colour result = pt.pathTrace(ray, throughput, Config::PT_RR_DEPTH, 0.0f, &sampler, false);
 
     float expected = 1.0f;
     REQUIRE(result.r == Catch::Approx(expected).margin(1e-4f));

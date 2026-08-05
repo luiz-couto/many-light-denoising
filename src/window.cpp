@@ -2,9 +2,6 @@
 #include <algorithm>
 #include <stdexcept>
 
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
-
 Window::Window(const char* title, int _width, int _height):
   width(_width), height(_height) {
 
@@ -56,15 +53,4 @@ void Window::update(const uint8_t* pixels) {
   SDL_RenderClear(sdlRenderer);
   SDL_RenderCopy(sdlRenderer, sdlTexture, nullptr, nullptr);
   SDL_RenderPresent(sdlRenderer);
-}
-
-void Window::savePNG(const char* path, const uint8_t* pixels) {
-  stbi_write_png(
-    path,
-    width,
-    height,
-    3,
-    pixels,
-    width * 3
-  );
 }

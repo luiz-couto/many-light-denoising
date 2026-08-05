@@ -1,14 +1,20 @@
 #pragma once
+#include <string>
 
 namespace Config {
   enum class IntegratorType { PathTracer, InstantRadiosity, InstantRadiosityReSTIR };
 
-  constexpr IntegratorType INTEGRATOR = IntegratorType::PathTracer;
+  inline IntegratorType INTEGRATOR = IntegratorType::PathTracer;
   constexpr int TILE_SIZE = 64;
   constexpr const char* TITLE = "many-light-denoising";
-  constexpr const char* OUTPUT_PATH = "output.png";
   constexpr const char* SCENE_PATH_PREFIX = "scenes";
+  constexpr const char* OUTPUTS_FOLDER = "outputs";
+
   inline bool USE_DENOISER = true;
+  inline int TARGET_SPP = 0; // 0 = interactive endless loop
+  inline std::string SCENE_NAME = "";
+  inline std::string INTEGRATOR_NAME = "";
+  inline std::string OUTPUT_PREFIX = ""; // "<scene>_<integrator>", set by main
 
   // Path Tracer
   constexpr int PT_MAX_DEPTH = 20;
