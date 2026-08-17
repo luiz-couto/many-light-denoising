@@ -1,0 +1,6 @@
+numpy
+pytest
+pillow
+matplotlib
+flip-evaluator
+scikit-image

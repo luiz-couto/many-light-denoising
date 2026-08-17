@@ -48,3 +48,15 @@ Desktop.ini
 
 # Clangd
 .cache
+
+# Image Outputs
+output*/
+
+# Aux
+jot-down.md
+p*.md
+related-papers.md
+
+# Python
+*.py[cod]
+__pycache__/
