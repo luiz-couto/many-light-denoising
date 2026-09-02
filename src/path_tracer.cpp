@@ -63,9 +63,14 @@ Colour PathTracerIntegrator::pathTrace(const Ray& ray, Colour throughput, int de
 
   Colour newThroughput = throughput * indirect;
 
-  // RR
+  // RR on the MAX channel: q >= every channel of throughput's step, so no
+  // channel can grow through a surviving bounce. Luminance-based q divided
+  // blue-dominant throughput by its tiny luminance each survival (blue's
+  // luminance weight is 0.07), compounding to float overflow and NaN pixels
+  // under blue-heavy env light (classroom: 2839 NaN px in one spp-256 run;
+  // same fix as the photon pass, 2026-08-30).
   if (depth >= Config::PT_RR_DEPTH) {
-    float q = newThroughput.lum();
+    float q = std::max(newThroughput.r, std::max(newThroughput.g, newThroughput.b));
     float qClamped = std::min(q, 1.0f);
     float epsilon = sampler->next();
     if (epsilon > qClamped) {

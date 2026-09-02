@@ -138,16 +138,33 @@ void EnvironmentMap::buildCDF() {
   this->totalSum = sum;
   columnCDF = new float[env->height];
   
-  float columnSum = 0;
+  float columnSum = 0.0f;
   for (int u=0; u<env->height; u++) {
-    float rowSum = 0;
-    for (int v=0; v<env->width; v++) {
-      float prob = rowCDF[u][v] / sum;
-      rowCDF[u][v] = rowSum + prob;
-      rowSum += prob;
+    float rowMass = 0.0f;
+
+    for (int v = 0; v < env->width; v++) rowMass += rowCDF[u][v];
+
+    float rowAccum = 0.0f;
+    for (int v = 0; v < env->width; v++) {
+      if (rowMass > 0.0f) {
+        rowAccum += rowCDF[u][v] / rowMass;
+        rowCDF[u][v] = rowAccum;
+      } else {
+        rowCDF[u][v] = 1.0f;
+      }
     }
-    columnCDF[u] = columnSum + rowSum;
-    columnSum += rowSum;
+
+    columnSum += (sum > 0.0f) ? rowMass / sum : 0.0f;
+    columnCDF[u] = columnSum;
+
+    // float rowSum = 0;
+    // for (int v=0; v<env->width; v++) {
+    //   float prob = rowCDF[u][v] / sum;
+    //   rowCDF[u][v] = rowSum + prob;
+    //   rowSum += prob;
+    // }
+    // columnCDF[u] = columnSum + rowSum;
+    // columnSum += rowSum;
   }
 }
 
@@ -244,7 +261,11 @@ Vec3 EnvironmentMap::sampleDirectionFromLight(Sampler* sampler, float& pdf) {
   float phi = 2.0f * M_PI * vTex;
 
   Vec3 wi = Vec3(sinf(theta) * cosf(phi), cosf(theta), sinf(theta) * sinf(phi));
-  Colour color = env->sample(uTex, vTex);
+  // Texture::sample takes (tu = azimuth/column, tv = polar/row): vTex is the
+  // column coordinate, uTex the row. Passing them swapped read the pdf from
+  // an unrelated texel, so sun-bright photons could get a dim-texel pdf —
+  // the 1e8x emission monsters in env scenes (found 2026-08-30).
+  Colour color = env->sample(vTex, uTex);
   pdf = (totalSum < 1e-10f) ? 0.0f : color.lum() * (float)(env->width * env->height) / (totalSum * 2.0f * M_PI * M_PI);
 
   return wi;

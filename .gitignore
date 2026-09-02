@@ -56,6 +56,9 @@ output*/
 jot-down.md
 p*.md
 related-papers.md
+references/
+*.csv
+tables/
 
 # Python
 *.py[cod]

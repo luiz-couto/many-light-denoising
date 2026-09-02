@@ -268,6 +268,129 @@ TEST_CASE("InstantRadiosity emitPhoton: environment map — sphere origin, inwar
   REQUIRE(nonZeroCount > 20);
 }
 
+// The aggregate twin of the identity test above (added while hunting the
+// MaterialsScene blowout, 2026-08-30): the identity test proves flux matches
+// the pdfs the light RETURNS; this one proves the deposited ENERGY matches
+// physics. Under a uniform sky of radiance Le, a two-sided flat patch of
+// area A receives exactly 2*pi*Le*A of power, independent of the emission
+// sphere's radius. Le here is the map's own discrete measure
+// (totalSum * 2*pi^2 / (W*H)) / (4*pi), so the expectation is exact for the
+// 4x4 texture, not an approximation. A flux-normalisation bug of any
+// magnitude fails this test; per-photon identities cannot catch it.
+TEST_CASE("InstantRadiosity photon pass: env deposited power equals two-sided patch irradiance (energy conservation)") {
+  Texture envTex; fillTexture(envTex, 4, 4, Colour(1.0f, 1.0f, 1.0f));
+
+  const Vec3  sceneCentre(0.0f, 0.0f, 0.0f);
+  const float sceneRadius = 2.0f;   // just outside the triangle's circumradius
+  EnvironmentMap environment(&envTex, sceneCentre, sceneRadius);
+
+  Texture white; fillTexture(white, 1, 1, Colour(1.0f, 1.0f, 1.0f));
+  DiffuseBSDF floorMaterial(&white);   // albedo 1: deposited flux = PI * vpl radiance
+  Triangle floorTri = makeTri(Vec3(-1.0f, -1.0f, 0.0f), Vec3(1.0f, -1.0f, 0.0f),
+                              Vec3(-1.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0);
+  const float triangleArea = 2.0f;
+
+  Scene scene;
+  scene.init({floorTri}, {&floorMaterial}, &environment);
+  scene.build();
+
+  Film film;
+  film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  int savedPaths = Config::IR_NUM_LIGHT_PATHS;
+  Config::IR_NUM_LIGHT_PATHS = 50000;
+  MTRandom sampler(42);
+  integrator.prepare(&sampler);
+  Config::IR_NUM_LIGHT_PATHS = savedPaths;
+
+  // Photons bounce up (cosine about +z) or down off the single triangle and
+  // then miss everything, so every VPL is a first-hit deposit.
+  double depositedFlux = 0.0;
+  for (const VPL& vpl : integrator.vpls) {
+    depositedFlux += (double)vpl.radiance.r * PI;   // invert radiance = flux/PI
+  }
+
+  // Expected power on a two-sided patch: A * int Le * |cos(theta)| dOmega,
+  // in the map's own DISCRETE measure (the 4x4 map quantises directions to
+  // four polar rings; the continuous-sky formula 2*pi*Le*A overestimates,
+  // because the heaviest ring, theta = 90 degrees, is parallel to the patch
+  // and contributes nothing).
+  float cosWeightedSum = 0.0f;
+  for (int u = 0; u < 4; u++) {
+    float theta = PI * (float)u / 4.0f;
+    cosWeightedSum += 4.0f * sinf(theta) * fabsf(cosf(theta));
+  }
+  const float integratedCosRadiance = cosWeightedSum * 2.0f * PI * PI / 16.0f;
+  const float expectedPower = integratedCosRadiance * triangleArea;
+
+  REQUIRE(depositedFlux == Catch::Approx(expectedPower).epsilon(0.10f));
+}
+
+// Flux-ceiling regression (the MaterialsScene blowout hunt, 2026-08-30; the
+// original diagnostic ran on the real scene). A peaked, ASYMMETRIC env map
+// (one off-diagonal sun texel) reproduces both emission bugs synthetically:
+// the swapped pdf lookup handed sun-bright photons a dim-texel pdf (1e8x
+// monster VPLs) and the unnormalised row CDF collapsed azimuths. Invariants
+// that hold for ANY photon path, because every bounce weight is <= 1:
+//   1. no VPL exceeds the per-photon flux ceiling cos * 4*pi*R^2 * intLe / N
+//      (radiance form: ceiling / pi, albedo <= 1);
+//   2. total deposited flux stays within a bounce-series bound of the
+//      power emitted through the scene sphere.
+TEST_CASE("InstantRadiosity photon pass: peaked env map respects per-photon flux ceiling (emission regression)") {
+  const int W = 8, H = 8;
+  Texture envTex; fillTexture(envTex, W, H, Colour(0.05f, 0.05f, 0.05f));
+  envTex.texels[2 * W + 5] = Colour(5000.0f, 5000.0f, 5000.0f);   // off-diagonal sun
+
+  const Vec3  sceneCentre(0.0f, 0.0f, 0.0f);
+  const float sceneRadius = 2.0f;
+  EnvironmentMap environment(&envTex, sceneCentre, sceneRadius);
+
+  Texture grey; fillTexture(grey, 1, 1, Colour(0.8f, 0.8f, 0.8f));
+  DiffuseBSDF floorMaterial(&grey);
+  Triangle floorTri = makeTri(Vec3(-1.0f, -1.0f, 0.0f), Vec3(1.0f, -1.0f, 0.0f),
+                              Vec3(-1.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f), 0);
+
+  Scene scene;
+  scene.init({floorTri}, {&floorMaterial}, &environment);
+  scene.build();
+
+  Film film;
+  film.init(8, 8);
+  InstantRadiosityIntegrator integrator(&scene, &film);
+
+  const int numPaths = 4096;
+  int savedPaths = Config::IR_NUM_LIGHT_PATHS;
+  int savedDepth = Config::IR_MAX_PHOTON_DEPTH;
+  Config::IR_NUM_LIGHT_PATHS = numPaths;
+  Config::IR_MAX_PHOTON_DEPTH = 100;
+  MTRandom sampler(1);
+  integrator.prepare(&sampler);
+  Config::IR_NUM_LIGHT_PATHS = savedPaths;
+  Config::IR_MAX_PHOTON_DEPTH = savedDepth;
+
+  // Discrete integral of Le over the map (buildCDF's own measure).
+  float integratedLe = 0.0f;
+  for (int u = 0; u < H; u++) {
+    for (int v = 0; v < W; v++) {
+      integratedLe += envTex.texels[u * W + v].lum() * sinf(PI * (float)u / (float)H);
+    }
+  }
+  integratedLe *= 2.0f * PI * PI / (float)(W * H);
+
+  const float emittedPower = PI * sceneRadius * sceneRadius * integratedLe;
+  const float fluxCeiling = 4.0f * PI * sceneRadius * sceneRadius * integratedLe / (float)numPaths;
+
+  REQUIRE(integrator.vpls.size() > 100);   // the pass actually deposited
+  double totalFlux = 0.0;
+  for (const VPL& vpl : integrator.vpls) {
+    // albedo 0.8: flux = pi * radiance / 0.8
+    totalFlux += (double)vpl.radiance.lum() * PI / 0.8;
+    REQUIRE(vpl.radiance.lum() <= fluxCeiling / PI);
+  }
+  REQUIRE(totalFlux <= 2.5 * emittedPower);
+}
+
 // -----------------------------------------------------------------------
 // depositVPL
 // -----------------------------------------------------------------------
@@ -887,7 +1010,8 @@ TEST_CASE("InstantRadiosity gatherVPLs: tilted VPL analytical contribution") {
 // Stage 4 — decoupled shading (footprint jitter)
 //
 // These tests are FLAG-AGNOSTIC: they assert the correct contract for
-// whichever value Config::IR_DECOUPLED_SHADING was compiled with. All other
+// whichever value Config::IR_DECOUPLED_SHADING holds at startup (the flag
+// is runtime config now, --ir-jitter on|off). All other
 // gather tests stay exact under either setting because their hand-built
 // VPLs have footprintRadius = 0 (jitter degenerates to the centre).
 // -----------------------------------------------------------------------
@@ -922,7 +1046,7 @@ TEST_CASE("Stage 4: gatherVPLs consumes randomness only when the flag is on") {
   CountingSampler sampler;
   integrator.gatherVPLs(shadeFloorOrigin(scene), &sampler);
 
-  if constexpr (Config::IR_DECOUPLED_SHADING) {
+  if (Config::IR_DECOUPLED_SHADING) {
     REQUIRE(sampler.draws == 2);   // one disk sample: radius + angle
   } else {
     REQUIRE(sampler.draws == 0);   // flag off: stream untouched
@@ -951,7 +1075,7 @@ TEST_CASE("Stage 4: jittered gather preserves the mean on an unoccluded VPL") {
   ShadingData shadingData = shadeFloorOrigin(scene);
   const float centreValue = 0.25f / PI;
 
-  if constexpr (Config::IR_DECOUPLED_SHADING) {
+  if (Config::IR_DECOUPLED_SHADING) {
     MTRandom sampler(42);
     double sum = 0.0;
     const int samples = 600;
@@ -1012,7 +1136,7 @@ TEST_CASE("Stage 4: knife-edge occluder — jitter turns a hard verdict into var
 
   const float fullValue = 0.25f / PI;   // unoccluded centre contribution
 
-  if constexpr (Config::IR_DECOUPLED_SHADING) {
+  if (Config::IR_DECOUPLED_SHADING) {
     MTRandom sampler(42);
     const int samples = 600;
     double sum = 0.0, sumSq = 0.0;

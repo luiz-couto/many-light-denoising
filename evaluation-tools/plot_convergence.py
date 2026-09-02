@@ -44,6 +44,8 @@ VARIANTS  = [RAW_TAG, DENOISED_TAG]
 X_COLUMNS = [SPP_COLUMN, SECONDS_COLUMN]
 
 INTEGRATOR_COLOURS = {"pt": "tab:blue", "ir": "tab:orange", "restir": "tab:green"}
+INTEGRATOR_LABELS  = {"pt": "PT", "ir": "IR", "restir": "DWIR (Ours)"}
+INTEGRATOR_ORDER   = ["pt", "ir", "restir"]
 VARIANT_TITLES     = {RAW_TAG: "raw (no denoiser)", DENOISED_TAG: "denoised (OIDN)"}
 X_AXIS_LABELS      = {SECONDS_COLUMN: "render time (s)", SPP_COLUMN: "samples per pixel"}
 
@@ -91,7 +93,9 @@ def series_for(rows, integrator, metric, variant, x_column):
 
 
 def plot_chart(rows, scene, figure_prefix, metric, variant, x_column):
-    integrators = sorted({row[INTEGRATOR_COLUMN] for row in rows})
+    present = {row[INTEGRATOR_COLUMN] for row in rows}
+    integrators = [i for i in INTEGRATOR_ORDER if i in present] \
+                + sorted(present - set(INTEGRATOR_ORDER))
 
     fig, axis = plt.subplots(figsize=(6.5, 4.5))
     plotted = False
@@ -101,7 +105,7 @@ def plot_chart(rows, scene, figure_prefix, metric, variant, x_column):
             continue
         xs, ys = zip(*points)
         axis.plot(xs, ys, "-o", color=INTEGRATOR_COLOURS.get(integrator, "tab:gray"),
-                  label=integrator)
+                  label=INTEGRATOR_LABELS.get(integrator, integrator))
         plotted = True
 
     if not plotted:

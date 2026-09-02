@@ -8,9 +8,10 @@
 // All disk output lives here: pfm, png, json metadata.
 class FileHandler {
 public:
-  // Writes the per-run artifact set (pfm, denoised pfm, png, json metadata)
-  // under Config::OUTPUTS_FOLDER with one shared timestamped basename.
-  static void saveOutputs(Film& film, const std::vector<uint8_t>& frameBuffer, double renderSeconds);
+  // Writes the per-run artifact set under Config::OUTPUTS_FOLDER with one
+  // shared timestamped basename: raw pfm + png always; denoised pfm + png
+  // when the denoiser is on; json metadata.
+  static void saveOutputs(Film& film, double renderSeconds);
 
   // Writes a linear HDR buffer as PFM (little-endian, bottom row first).
   static void writePFM(const std::string& path, const std::vector<Colour>& buffer, unsigned int width, unsigned int height);

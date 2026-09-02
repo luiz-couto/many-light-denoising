@@ -61,6 +61,22 @@ std::vector<uint8_t> Film::toPixels() {
   return pixels;
 }
 
+// Tonemaps a caller-supplied linear HDR buffer (already SPP-normalized)
+// regardless of the denoiser flag — used to save raw and denoised PNGs.
+std::vector<uint8_t> Film::toPixels(const std::vector<Colour>& buffer) {
+  std::vector<uint8_t> pixels(buffer.size() * 3);
+
+  for (size_t i = 0; i < buffer.size(); i++) {
+    unsigned char r, g, b;
+    tonemapValue(buffer[i], r, g, b);
+    pixels[i * 3]     = r;
+    pixels[i * 3 + 1] = g;
+    pixels[i * 3 + 2] = b;
+  }
+
+  return pixels;
+}
+
 // Filmic curve helper. Maps a linear HDR value to a
 // compressed range before the final white-point normalisation in tonemap().
 float Film::filmicCFunc(float value) {
@@ -78,29 +94,34 @@ float Film::filmicCFunc(float value) {
   return (v1 / v2) - v3;
 }
 
-// Converts the denoised pixel at (x, y) to gamma-corrected uint8_t RGB.
-// Reads from filmDenoised (already SPP-normalized by denoise()), applies
-// exposure, runs the filmic curve, gamma (1/2.2), and clamps to [0, 255].
-void Film::tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure) {
-  Colour curr = Config::USE_DENOISER
-    ? filmDenoised[(y * width) + x] * exposure
-    : (SPP > 0 ? film[(y * width) + x] / (float)SPP : Colour(0.0f, 0.0f, 0.0f)) * exposure;
-
+// Applies the filmic curve, gamma (1/2.2), and clamps a single linear HDR
+// colour to gamma-corrected uint8_t RGB.
+void Film::tonemapValue(const Colour& value, unsigned char& r, unsigned char& g, unsigned char& b) {
   float expFac = 1.0f / 2.2f;
   float W = 11.2f;
   float CW = filmicCFunc(W);
-  float CR = filmicCFunc(curr.r);
+  float CR = filmicCFunc(value.r);
   float rOut = powf((CR / CW), expFac);
 
-  float CG = filmicCFunc(curr.g);
+  float CG = filmicCFunc(value.g);
   float gOut = powf((CG / CW), expFac);
 
-  float CB = filmicCFunc(curr.b);
+  float CB = filmicCFunc(value.b);
   float bOut = powf((CB / CW), expFac);
 
   r = std::clamp(rOut, 0.0f, 1.0f) * 255;
   g = std::clamp(gOut, 0.0f, 1.0f) * 255;
   b = std::clamp(bOut, 0.0f, 1.0f) * 255;
+}
+
+// Converts the pixel at (x, y) to gamma-corrected uint8_t RGB. Reads from
+// filmDenoised when the denoiser is on, otherwise the SPP-normalized raw film.
+void Film::tonemap(int x, int y, unsigned char& r, unsigned char& g, unsigned char& b, float exposure) {
+  Colour curr = Config::USE_DENOISER
+    ? filmDenoised[(y * width) + x] * exposure
+    : (SPP > 0 ? film[(y * width) + x] / (float)SPP : Colour(0.0f, 0.0f, 0.0f)) * exposure;
+
+  tonemapValue(curr, r, g, b);
 }
 
 void Film::setNormal(int x, int y, const Colour& L) {

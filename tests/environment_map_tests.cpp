@@ -315,6 +315,119 @@ TEST_CASE("EnvironmentMap sampleDirectionFromLight: black texture returns pdf=0,
 }
 
 // -----------------------------------------------------------------------
+// Row-CDF regression tests (bug found 2026-08-30)
+//
+// buildCDF stores each row's conditional CDF normalised by the GLOBAL sum,
+// so a row's entries accumulate only to that row's probability mass. The
+// column search must account for that; searching with a raw uniform in
+// [0,1) runs off the end of the row and returns the LAST column for almost
+// every draw, collapsing all azimuths to one strip of sky. The single-
+// bright-pixel test above cannot catch this: its bright row carries ALL
+// the mass, the one case where the row CDF does end at 1.
+// These tests spread mass across several rows. They FAIL on the broken
+// code and pass once the column search uses the row-conditional CDF.
+// -----------------------------------------------------------------------
+
+// Azimuth bin of a direction, matching evaluate()'s u mapping. Bins are
+// rotated half a texel: the sampler emits directions exactly at texel
+// corners (vTex = v/W), which would otherwise sit on bin boundaries where
+// atan2f rounding assigns them to either side arbitrarily.
+static int azimuthBin(const Vec3& wi, int width) {
+  float u = atan2f(wi.z, wi.x);
+  u = (u < 0.0f) ? u + (2.0f * PI) : u;
+  u = u / (2.0f * PI);
+  return (int)(u * width + 0.5f) % width;
+}
+
+TEST_CASE("EnvironmentMap sampleDirectionFromLight: azimuth marginal is uniform for a uniform texture (row-CDF regression)") {
+  // Uniform 8x8 map: every azimuth column carries equal mass, so sampled
+  // azimuth bins must be uniform. Chi-square over 8 bins, dof = 7;
+  // threshold = dof + 5*sqrt(2*dof) ~ 26 (5 sigma, no false positives).
+  // Broken code puts every draw in one bin: chi2 ~ N*(bins-1) >> 26.
+  Texture tex; fillTexture(tex, 8, 8, Colour(1.0f, 1.0f, 1.0f));
+  EnvironmentMap env(&tex, CENTRE, RADIUS);
+  MTRandom sampler;
+
+  const int N = 16000;
+  int counts[8] = {0};
+  for (int i = 0; i < N; i++) {
+    float pdf;
+    Vec3 wi = env.sampleDirectionFromLight(&sampler, pdf);
+    counts[azimuthBin(wi, 8)]++;
+  }
+
+  float expected = (float)N / 8.0f;
+  float chi2 = 0.0f;
+  for (int b = 0; b < 8; b++) {
+    float d = (float)counts[b] - expected;
+    chi2 += d * d / expected;
+  }
+  REQUIRE(chi2 < 26.0f);
+}
+
+TEST_CASE("EnvironmentMap sample: azimuth marginal is uniform for a uniform texture (row-CDF regression)") {
+  // Same distribution check for the gather-side sampler (env NEE): it
+  // shares the row-CDF search and therefore the same collapse.
+  Texture tex; fillTexture(tex, 8, 8, Colour(1.0f, 1.0f, 1.0f));
+  EnvironmentMap env(&tex, CENTRE, RADIUS);
+  ShadingData sd = makeSD(); MTRandom sampler;
+
+  const int N = 16000;
+  int counts[8] = {0};
+  for (int i = 0; i < N; i++) {
+    Colour col; float pdf;
+    Vec3 wi = env.sample(sd, &sampler, col, pdf);
+    counts[azimuthBin(wi, 8)]++;
+  }
+
+  float expected = (float)N / 8.0f;
+  float chi2 = 0.0f;
+  for (int b = 0; b < 8; b++) {
+    float d = (float)counts[b] - expected;
+    chi2 += d * d / expected;
+  }
+  REQUIRE(chi2 < 26.0f);
+}
+
+TEST_CASE("EnvironmentMap sampleDirectionFromLight: pdf matches PDF for an ASYMMETRIC texture (coordinate-swap regression)") {
+  // The uniform-texture pdf-match test above is blind to swapped texture
+  // coordinates (uniform maps are swap-invariant). A single bright ROW makes
+  // the lookup orientation matter: the inline pdf must agree with PDF(wi)
+  // for every draw. The swapped lookup read the pdf from an unrelated texel,
+  // handing sun-bright photons a dim-texel pdf (the 1e8x emission monsters).
+  Texture tex; fillTexture(tex, 8, 8, Colour(0.1f, 0.1f, 0.1f));
+  for (int v = 0; v < 8; v++) tex.texels[2 * 8 + v] = Colour(10.0f, 10.0f, 10.0f);
+  EnvironmentMap env(&tex, CENTRE, RADIUS);
+  ShadingData sd = makeSD(); MTRandom sampler;
+
+  for (int i = 0; i < 200; i++) {
+    float samplePdf;
+    Vec3 wi = env.sampleDirectionFromLight(&sampler, samplePdf);
+    float queryPdf = env.PDF(sd, wi);
+    REQUIRE(samplePdf == Catch::Approx(queryPdf).epsilon(1e-3f));
+  }
+}
+
+TEST_CASE("EnvironmentMap sampleDirectionFromLight: draws never land on zero-energy texels (row-CDF regression)") {
+  // Left half of every row bright, right half black. A correct importance
+  // sampler can only pick bright columns, so every sampled direction must
+  // evaluate to nonzero radiance. Broken code returns the LAST (black)
+  // column for almost every draw.
+  Texture tex; fillTexture(tex, 8, 8, Colour(0.0f, 0.0f, 0.0f));
+  for (int u = 0; u < 8; u++)
+    for (int v = 0; v < 4; v++)
+      tex.texels[u * 8 + v] = Colour(1.0f, 1.0f, 1.0f);
+  EnvironmentMap env(&tex, CENTRE, RADIUS);
+  MTRandom sampler;
+
+  for (int i = 0; i < 500; i++) {
+    float pdf;
+    Vec3 wi = env.sampleDirectionFromLight(&sampler, pdf);
+    REQUIRE(env.evaluate(wi).lum() > 0.0f);
+  }
+}
+
+// -----------------------------------------------------------------------
 // samplePositionFromLight
 // -----------------------------------------------------------------------
 

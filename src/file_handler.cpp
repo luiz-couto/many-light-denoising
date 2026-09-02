@@ -15,7 +15,7 @@ static std::string timestamp() {
   return std::string(buffer);
 }
 
-void FileHandler::saveOutputs(Film& film, const std::vector<uint8_t>& frameBuffer, double renderSeconds) {
+void FileHandler::saveOutputs(Film& film, double renderSeconds) {
   std::filesystem::create_directories(Config::OUTPUTS_FOLDER);
   std::string currentTimestamp = timestamp();
   std::string base =
@@ -28,13 +28,16 @@ void FileHandler::saveOutputs(Film& film, const std::vector<uint8_t>& frameBuffe
   std::vector<Colour> averaged = film.film;
   float invSPP = 1.0f / (float)film.SPP;
   for (Colour& c : averaged) c = c * invSPP;
+
+  // Raw always: plain name. Denoised: _denoised suffix (mirrors the pfm pair).
   writePFM(base + ".pfm", averaged, film.width, film.height);
+  savePNG(base + ".png", film.toPixels(averaged), film.width, film.height);
 
   if (Config::USE_DENOISER) {
     writePFM(base + "_denoised.pfm", film.filmDenoised, film.width, film.height);
+    savePNG(base + "_denoised.png", film.toPixels(film.filmDenoised), film.width, film.height);
   }
 
-  savePNG(base + ".png", frameBuffer, film.width, film.height);
   writeJSONMetadata(film, base + ".json", renderSeconds, currentTimestamp);
 }
 

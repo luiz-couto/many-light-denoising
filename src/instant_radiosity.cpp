@@ -30,9 +30,13 @@ void InstantRadiosityIntegrator::prepare(Sampler* sampler) {
       
       flux = flux * weight;
 
-      // RR
+      // RR on the MAX channel: q >= every channel of weight, so no channel
+      // of flux can grow through a surviving bounce. Luminance-based q let
+      // saturated albedos amplify their dominant channel by weight/lum per
+      // bounce (orange ball: 1.96x), compounding into ~1e8 monster VPLs on
+      // deep paths (found 2026-08-30; the flux-ceiling test pins this).
       if (depth >= 1) {
-        float q = std::min(weight.lum(), 1.0f);
+        float q = std::min(std::max(weight.r, std::max(weight.g, weight.b)), 1.0f);
         if (sampler->next() > q) break;
         flux = flux / q;
       }

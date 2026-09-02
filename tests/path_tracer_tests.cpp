@@ -556,7 +556,8 @@ TEST_CASE("pathTrace: cosTheta < 1e-6 exits early, returns only directLight * th
 //               = (1*1*1 / 0.5) * (1/3) = 2/3
 //
 // newThroughput = throughput * WHITE = throughput  (for FixedBSDF(WHITE))
-// RR at depth=RR_DEPTH: q = lum(throughput), qClamped = min(q, 1)
+// RR at depth=RR_DEPTH: q = max channel of throughput, qClamped = min(q, 1)
+// (these tests use GREY throughputs, where max channel == lum)
 //
 // FixedSampler{sel, rr_eps}: sel consumed by sampleLightWeighted (index 0),
 //                             rr_eps consumed by RR check (index 1).

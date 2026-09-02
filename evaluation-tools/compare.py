@@ -43,6 +43,11 @@ DENOISED_TAG = "dn"
 RUN_COLUMN       = "run"
 REFERENCE_COLUMN = "reference"
 
+# Sidecar keys that are annotations, not config axes — excluded from the CSV
+# (they stay in the sidecar itself; a patched artifact would otherwise grow
+# an extra column and trip the pinned-schema guard).
+EXCLUDED_METADATA_KEYS = ("patch_note",)
+
 # Part of relMSE's definition, not a tunable knob. Changing it invalidates
 # comparability of every existing row.
 REL_MSE_EPS = 1e-2
@@ -153,6 +158,8 @@ def load_json_metadata(base):
 def flatten_json_metadata(metadata):
     flat = {}
     for key, value in metadata.items():
+        if key in EXCLUDED_METADATA_KEYS:
+            continue
         if isinstance(value, dict):
             for subkey, subvalue in value.items():
                 flat[f"{key}_{subkey}"] = subvalue

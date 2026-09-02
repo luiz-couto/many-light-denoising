@@ -156,3 +156,19 @@ TEST_CASE("Film toPixels: non-zero pixel after filmDenoised is set") {
   REQUIRE(pixels[1] > 0);
   REQUIRE(pixels[2] > 0);
 }
+
+TEST_CASE("Film toPixels(buffer): tonemaps the supplied buffer, ignoring the denoiser flag") {
+  // Used by FileHandler to save the raw png even when the denoiser is on:
+  // the buffer argument, not Config::USE_DENOISER, decides what is tonemapped.
+  Film f = makeFilm(2, 2);
+  f.filmDenoised[0] = Colour(1000.0f, 1000.0f, 1000.0f);  // must NOT leak into the output
+
+  std::vector<Colour> buffer(4, Colour(0.0f, 0.0f, 0.0f));
+  buffer[1] = Colour(0.5f, 0.5f, 0.5f);
+
+  auto pixels = f.toPixels(buffer);
+  REQUIRE(pixels.size() == 4u * 3u);
+  REQUIRE(pixels[0] == 0);      // black stays black despite bright filmDenoised
+  REQUIRE(pixels[3] > 0);       // the supplied buffer's bright pixel is tonemapped
+  REQUIRE(pixels[6] == 0);
+}

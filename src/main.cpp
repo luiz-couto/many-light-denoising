@@ -22,9 +22,10 @@ static std::string integratorKeys() {
 
 int main(int argc, char* argv[]) {
   if (argc < 3) {
-    std::println("Usage: {} <scene-name> <{}> [--spp N] [--no-denoise]", argv[0], integratorKeys());
+    std::println("Usage: {} <scene-name> <{}> [--spp N] [--no-denoise] [--snapshot N|log] [--ir-paths N] [--ir-depth N] [--ir-jitter on|off] [--restir-rounds N]", argv[0], integratorKeys());
     std::println("  e.g. {} kitchen restir --spp 64", argv[0]);
     std::println("  e.g. {} bedroom pt --spp 4096   (reference build)", argv[0]);
+    std::println("  e.g. {} bathroom restir --spp 256 --snapshot log   (artifacts at spp 1,2,4,...,256)", argv[0]);
     return 1;
   }
 
@@ -48,6 +49,15 @@ int main(int argc, char* argv[]) {
     std::string arg = argv[i];
     if (arg == "--no-denoise") Config::USE_DENOISER = false;
     if (arg == "--spp" && i + 1 < argc) Config::TARGET_SPP = std::stoi(argv[++i]);
+    if (arg == "--snapshot" && i + 1 < argc) {
+      std::string value = argv[++i];
+      if (value == "log") Config::SNAPSHOT_LOG = true;
+      else Config::SNAPSHOT_INTERVAL = std::stoi(value);
+    }
+    if (arg == "--ir-paths" && i + 1 < argc) Config::IR_NUM_LIGHT_PATHS = std::stoi(argv[++i]);
+    if (arg == "--ir-depth" && i + 1 < argc) Config::IR_MAX_PHOTON_DEPTH = std::stoi(argv[++i]);
+    if (arg == "--ir-jitter" && i + 1 < argc) Config::IR_DECOUPLED_SHADING = std::string(argv[++i]) == "on";
+    if (arg == "--restir-rounds" && i + 1 < argc) Config::IR_RESTIR_SPATIAL_ROUNDS = std::stoi(argv[++i]);
   }
 
   if (!std::filesystem::is_directory(scenePath)) {
